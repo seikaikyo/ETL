@@ -13,24 +13,17 @@ cache:
     - .pip-cache/
     - venv/
 
-# 設定 Docker 映像
-image: python:3.9
-
-before_script:
-  - python3 -V
-  - pip3 -V
-
 # 測試階段
 test_connection:
   stage: test
+  tags:
+    - rocky
   script:
     - echo "開始進行資料庫連線測試..."
-    - apt-get update -qy
-    - apt-get install -y curl gnupg
-    - curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
-    - curl https://packages.microsoft.com/config/debian/10/prod.list > /etc/apt/sources.list.d/mssql-release.list
-    - apt-get update -qy
-    - ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
+    - dnf install -y unixODBC unixODBC-devel
+    - curl https://packages.microsoft.com/config/rhel/9/prod.repo > /etc/yum.repos.d/mssql-release.repo
+    - ACCEPT_EULA=Y dnf install -y msodbcsql17
+    - dnf install -y gcc-c++ python3-devel
     - python3 -m venv venv
     - source venv/bin/activate
     - pip install --upgrade pip
@@ -50,6 +43,8 @@ test_connection:
 # 部署階段
 deploy_etl:
   stage: deploy
+  tags:
+    - rocky
   script:
     - echo "開始進行 ETL 部署..."
     - chmod +x setup.sh
