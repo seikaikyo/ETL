@@ -1,0 +1,28 @@
+# 敏感資訊文件
+db.json
+
+# 環境設定
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 日誌文件
+*.log
+*.txt
+
+# 環境變數文件
+.env
+
+# IDE 相關
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系統文件
+.DS_Store
+Thumbs.db
+
+# 暫存目錄
+.pip-cache/
