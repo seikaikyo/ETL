@@ -1,0 +1,65 @@
+# GitLab CI/CD 配置文件
+# ETL 專案自動化部署
+
+stages:
+  - test
+  - deploy
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+cache:
+  paths:
+    - .pip-cache/
+    - venv/
+
+# 設定 Docker 映像
+image: python:3.9
+
+before_script:
+  - python3 -V
+  - pip3 -V
+
+# 測試階段
+test_connection:
+  stage: test
+  script:
+    - echo "開始進行資料庫連線測試..."
+    - apt-get update -qy
+    - apt-get install -y curl gnupg
+    - curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+    - curl https://packages.microsoft.com/config/debian/10/prod.list > /etc/apt/sources.list.d/mssql-release.list
+    - apt-get update -qy
+    - ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
+    - python3 -m venv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install pyodbc pandas
+    - echo "檢查資料庫設定..."
+    - grep -A 5 "source_db" db.json || echo "警告：找不到來源資料庫配置"
+    - grep -A 5 "target_db" db.json || echo "警告：找不到目標資料庫配置"
+    - python app.py
+  artifacts:
+    paths:
+      - etl_log.log
+    expire_in: 1 week
+  only:
+    - main
+    - merge_requests
+
+# 部署階段
+deploy_etl:
+  stage: deploy
+  script:
+    - echo "開始進行 ETL 部署..."
+    - chmod +x setup.sh
+    - ./setup.sh install
+  only:
+    - main
+  artifacts:
+    paths:
+      - setup_log.txt
+      - etl_log.log
+    expire_in: 1 week
+  environment:
+    name: production
