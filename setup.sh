@@ -105,22 +105,30 @@ install_system_packages() {
             return 1
         fi
         
-    elif check_command yum; then
-        info "使用 yum 包管理器..."
+    elif check_command yum || check_command dnf; then
+        info "使用 yum/dnf 包管理器..."
         
-        sudo yum update -y
+        if check_command dnf; then
+            PKG_MGR="dnf"
+        else
+            PKG_MGR="yum"
+        fi
+        
+        sudo $PKG_MGR update -y
         if [ $? -ne 0 ]; then
             error "無法更新套件清單"
             return 1
         fi
         
         info "安裝必要的系統套件..."
-        sudo yum install -y \
+        sudo $PKG_MGR install -y \
             python3 \
             python3-pip \
             unixODBC \
             unixODBC-devel \
-            curl
+            curl \
+            gcc-c++ \
+            python3-devel
             
         if [ $? -ne 0 ]; then
             error "安裝基本套件失敗"
@@ -131,10 +139,25 @@ install_system_packages() {
         info "安裝 Microsoft ODBC Driver for SQL Server..."
         
         # 下載 Microsoft 儲存庫 RPM
-        sudo curl https://packages.microsoft.com/config/rhel/8/prod.repo > /etc/yum.repos.d/mssql-release.repo
+        # 獲取 RHEL/CentOS/Rocky 的主要版本號
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            if [[ "$ID" == "rocky" || "$ID" == "rhel" || "$ID" == "centos" ]]; then
+                VERSION_ID_MAJOR=$(echo $VERSION_ID | cut -d. -f1)
+                sudo curl https://packages.microsoft.com/config/rhel/$VERSION_ID_MAJOR/prod.repo > /etc/yum.repos.d/mssql-release.repo
+            else
+                # 預設使用 RHEL 8 的儲存庫
+                warning "無法識別確切的 RHEL/CentOS 版本，使用 RHEL 8 的儲存庫"
+                sudo curl https://packages.microsoft.com/config/rhel/8/prod.repo > /etc/yum.repos.d/mssql-release.repo
+            fi
+        else
+            # 預設使用 RHEL 8 的儲存庫
+            warning "無法讀取 /etc/os-release，使用 RHEL 8 的儲存庫"
+            sudo curl https://packages.microsoft.com/config/rhel/8/prod.repo > /etc/yum.repos.d/mssql-release.repo
+        fi
         
         # 安裝 ODBC driver
-        sudo ACCEPT_EULA=Y yum install -y msodbcsql17
+        sudo ACCEPT_EULA=Y $PKG_MGR install -y msodbcsql17
         
         if [ $? -ne 0 ]; then
             error "安裝 ODBC Driver 失敗"
@@ -219,6 +242,15 @@ check_db_connection() {
     info "來源資料庫: $source_server/$source_db"
     info "目標資料庫: $target_server/$target_db"
     
+    # 檢查是否有 SAP 資料庫設定
+    if grep -q "sap_db" db.json; then
+        sap_server=$(grep -o '"server": "[^"]*"' db.json | head -3 | tail -1 | cut -d'"' -f4)
+        sap_db=$(grep -o '"database": "[^"]*"' db.json | head -3 | tail -1 | cut -d'"' -f4)
+        info "SAP 資料庫: $sap_server/$sap_db"
+    else
+        warning "找不到 SAP 資料庫設定"
+    fi
+    
     # 運行測試連接程序
     info "運行資料庫連接測試..."
     python app.py
@@ -246,28 +278,59 @@ stages:
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  GIT_SSL_NO_VERIFY: "true"  # 允許忽略 SSL 證書驗證
 
 cache:
   paths:
     - .pip-cache/
     - venv/
 
-before_script:
-  - python3 -V
-  - pip3 -V
-
+# 測試階段
 test_connection:
   stage: test
+  tags:
+    - rocky
+  before_script:
+    - git config --global http.sslVerify false  # 配置 git 忽略 SSL 驗證
   script:
-    - bash setup.sh test_db
+    - echo "開始進行資料庫連線測試..."
+    - dnf install -y unixODBC unixODBC-devel || echo "ODBC 相關套件安裝失敗，可能需要 sudo 權限"
+    - curl https://packages.microsoft.com/config/rhel/9/prod.repo > mssql-release.repo
+    - if [ -w /etc/yum.repos.d/ ]; then
+        cp mssql-release.repo /etc/yum.repos.d/;
+        ACCEPT_EULA=Y dnf install -y msodbcsql17;
+      else
+        echo "無法安裝 MSSQL ODBC 驅動程式，請確保已經預先安裝";
+      fi
+    - dnf install -y gcc-c++ python3-devel || echo "開發工具安裝失敗，可能需要 sudo 權限"
+    - python3 -m venv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install pyodbc pandas
+    - echo "檢查資料庫設定..."
+    - grep -A 5 "source_db" db.json || echo "警告：找不到來源資料庫配置"
+    - grep -A 5 "target_db" db.json || echo "警告：找不到目標資料庫配置"
+    - grep -A 5 "sap_db" db.json || echo "警告：找不到 SAP 資料庫配置"
+    - python app.py
+  artifacts:
+    paths:
+      - etl_log.log
+    expire_in: 1 week
   only:
     - main
     - merge_requests
 
+# 部署階段
 deploy_etl:
   stage: deploy
+  tags:
+    - rocky
+  before_script:
+    - git config --global http.sslVerify false  # 配置 git 忽略 SSL 驗證
   script:
-    - bash setup.sh install
+    - echo "開始進行 ETL 部署..."
+    - chmod +x setup.sh
+    - ./setup.sh install
   only:
     - main
   artifacts:
@@ -275,6 +338,8 @@ deploy_etl:
       - setup_log.txt
       - etl_log.log
     expire_in: 1 week
+  environment:
+    name: production
 EOL
     
     if [ $? -ne 0 ]; then
@@ -321,6 +386,20 @@ check_setup() {
         odbcinst -q -d | grep -v '\[ODBC'
     else
         warning "缺少 ODBC 安裝"
+    fi
+    
+    # 檢查資料庫設定
+    if [ -f "db.json" ]; then
+        success "檢查到 db.json 文件"
+        info "檢查資料庫設定："
+        
+        source_count=$(grep -c "source_db" db.json)
+        target_count=$(grep -c "target_db" db.json)
+        sap_count=$(grep -c "sap_db" db.json)
+        
+        info "來源資料庫設定: $source_count 個"
+        info "目標資料庫設定: $target_count 個"
+        info "SAP 資料庫設定: $sap_count 個"
     fi
     
     info "環境檢查完成"

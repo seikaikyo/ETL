@@ -138,6 +138,56 @@ def test_simple_etl():
         return False
 
 
+def test_sap_etl():
+    """測試 SAP 資料的簡單 ETL 操作"""
+    try:
+        logger.info("開始測試 SAP 資料的簡單 ETL 操作...")
+        config = load_db_config()
+
+        # 檢查 SAP 資料庫設定是否存在
+        if "sap_db" not in config:
+            logger.error("找不到 SAP 資料庫設定，請檢查 db.json 檔案")
+            return False
+
+        sap_config = config["sap_db"]
+        target_config = config["target_db"]
+
+        # 連接 SAP 資料庫
+        sap_conn_str = get_connection_string(sap_config)
+        sap_conn = pyodbc.connect(sap_conn_str)
+
+        # 執行查詢，獲取測試資料 (限制僅 5 筆)
+        query = """
+        SELECT TOP 5 TABLE_NAME, TABLE_SCHEMA
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE='BASE TABLE'
+        """
+
+        logger.info("從 SAP 資料庫讀取資料...")
+        df = pd.read_sql(query, sap_conn)
+
+        logger.info(f"成功讀取 {len(df)} 筆資料")
+        logger.info(f"資料樣本: \n{df.head().to_string()}")
+
+        # 關閉 SAP 連接
+        sap_conn.close()
+
+        # 測試是否能連接到目標資料庫
+        target_conn_str = get_connection_string(target_config)
+        target_conn = pyodbc.connect(target_conn_str)
+
+        logger.info("SAP ETL 測試成功 - 可以從 SAP 讀取資料並連接到目標資料庫")
+
+        # 關閉目標連接
+        target_conn.close()
+
+        return True
+
+    except Exception as e:
+        logger.error(f"執行 SAP ETL 測試時出錯: {e}")
+        return False
+
+
 if __name__ == "__main__":
     logger.info("=" * 50)
     logger.info(f"ETL 測試程序啟動 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -151,12 +201,26 @@ if __name__ == "__main__":
     # 測試目標資料庫連接
     target_success = test_db_connection("目標(Tableau)", config["target_db"])
 
-    # 若兩個資料庫都連接成功，則測試簡單 ETL
-    if source_success and target_success:
-        logger.info("兩個資料庫連接測試都成功，開始測試簡單的 ETL 操作...")
-        etl_success = test_simple_etl()
+    # 測試 SAP 資料庫連接
+    if "sap_db" in config:
+        sap_success = test_db_connection("SAP", config["sap_db"])
     else:
-        etl_success = False
+        logger.warning("找不到 SAP 資料庫設定，跳過 SAP 連接測試")
+        sap_success = False
+
+    # 測試簡單 ETL
+    etl_success = False
+    sap_etl_success = False
+
+    # 測試 MES ETL
+    if source_success and target_success:
+        logger.info("來源和目標資料庫連接測試都成功，開始測試簡單的 ETL 操作...")
+        etl_success = test_simple_etl()
+
+    # 測試 SAP ETL
+    if sap_success and target_success:
+        logger.info("SAP 和目標資料庫連接測試都成功，開始測試 SAP 資料的 ETL 操作...")
+        sap_etl_success = test_sap_etl()
 
     # 總結測試結果
     logger.info("=" * 50)
@@ -164,12 +228,23 @@ if __name__ == "__main__":
     logger.info(f"來源資料庫(MES)連接: {'成功' if source_success else '失敗'}")
     logger.info(f"目標資料庫(Tableau)連接: {'成功' if target_success else '失敗'}")
 
-    if source_success and target_success:
-        logger.info(f"簡單 ETL 測試: {'成功' if etl_success else '失敗'}")
+    if "sap_db" in config:
+        logger.info(f"SAP 資料庫連接: {'成功' if sap_success else '失敗'}")
 
-    if source_success and target_success and etl_success:
+    if source_success and target_success:
+        logger.info(f"MES ETL 測試: {'成功' if etl_success else '失敗'}")
+
+    if sap_success and target_success:
+        logger.info(f"SAP ETL 測試: {'成功' if sap_etl_success else '失敗'}")
+
+    # 判斷整體測試是否成功
+    overall_success = source_success and target_success and etl_success
+    if "sap_db" in config:
+        overall_success = overall_success and sap_success and sap_etl_success
+
+    if overall_success:
         logger.info("ETL 環境測試全部成功！")
         sys.exit(0)
     else:
-        logger.error("ETL 環境測試失敗！")
+        logger.error("ETL 環境測試有部分失敗！")
         sys.exit(1)
