@@ -6,24 +6,56 @@ import logging
 import json
 import datetime
 import os
+import sys
 import pandas as pd
 import pyodbc
 from sqlalchemy import create_engine
 
+# 設定日誌格式
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - ETL_Process - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("ETL_Process")
 
+# 讀取查詢定義檔
+
 
 def load_queries(path):
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)['queries']
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)['queries']
+    except Exception as e:
+        logger.error(f"載入查詢檔失敗: {path}, {e}")
+        sys.exit(1)
+
+# 取得資料庫連線
 
 
-def get_conn(conn_str):
-    return pyodbc.connect(conn_str)
+def get_pyodbc_conn(conn_str, name):
+    if not conn_str:
+        logger.error(f"環境變數 {name} 未設定")
+        sys.exit(1)
+    try:
+        return pyodbc.connect(conn_str)
+    except Exception as e:
+        logger.error(f"無法連線至 {name}: {e}")
+        sys.exit(1)
+
+# 建立 SQLAlchemy 引擎
+
+
+def get_engine(uri):
+    if not uri:
+        logger.error("環境變數 TARGET_CONN 未設定")
+        sys.exit(1)
+    try:
+        return create_engine(uri)
+    except Exception as e:
+        logger.error(f"無法建立目標資料庫引擎: {e}")
+        sys.exit(1)
+
+# 備份並清空目標表
 
 
 def backup_and_truncate(engine, table):
@@ -33,6 +65,8 @@ def backup_and_truncate(engine, table):
         conn.execute(f"SELECT * INTO {backup} FROM {table}")
         conn.execute(f"TRUNCATE TABLE {table}")
     return backup
+
+# 執行單一 ETL 查詢
 
 
 def run_etl(query, src_conn, tgt_engine):
@@ -48,6 +82,8 @@ def run_etl(query, src_conn, tgt_engine):
               index=False, chunksize=1000, method='multi')
     logger.info(f"已匯入 {len(df)} 筆至 {tgt}")
     return len(df)
+
+# 記錄執行摘要
 
 
 def record_summary(engine, mes_stat, sap_stat, mes_cnt, sap_cnt):
@@ -72,16 +108,24 @@ if __name__ == '__main__':
     logger.info('='*60)
     logger.info(f"ETL 程序啟動 - {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
 
-    mes_stat = '跳過'
-    sap_stat = '跳過'
-    mes_cnt = 0
-    sap_cnt = 0
+    # 環境變數讀取
+    mes_conn_str = os.getenv('MES_CONN')
+    sap_conn_str = os.getenv('SAP_CONN')
+    target_conn_uri = os.getenv('TARGET_CONN')
+
+    # 建立連線
+    src_mes = get_pyodbc_conn(mes_conn_str, 'MES_CONN')
+    src_sap = get_pyodbc_conn(sap_conn_str, 'SAP_CONN')
+    tgt_eng = get_engine(target_conn_uri)
+
+    # 載入查詢
     mes_q = load_queries('mes_queries.json')
     sap_q = load_queries('sap_queries.json')
-    src_mes = get_conn(os.getenv('MES_CONN'))
-    src_sap = get_conn(os.getenv('SAP_CONN'))
-    tgt_eng = create_engine(os.getenv('TARGET_CONN'))
 
+    mes_stat, sap_stat = '跳過', '跳過'
+    mes_cnt = sap_cnt = 0
+
+    # MES ETL
     if args.all or args.mes:
         logger.info('開始 MES ETL 流程...')
         try:
@@ -92,6 +136,7 @@ if __name__ == '__main__':
             logger.error(f"MES ETL 失敗: {e}")
             mes_stat = '失敗'
 
+    # SAP ETL
     if args.all or args.sap:
         logger.info('開始 SAP ETL 流程...')
         try:
@@ -102,10 +147,11 @@ if __name__ == '__main__':
             logger.error(f"SAP ETL 失敗: {e}")
             sap_stat = '失敗'
 
+    # 記錄摘要
     record_summary(tgt_eng, mes_stat, sap_stat, mes_cnt, sap_cnt)
     logger.info('='*60)
     logger.info(f"ETL 執行結果 - MES: {mes_stat}, SAP: {sap_stat}")
     if mes_stat == '失敗' or sap_stat == '失敗':
         logger.error('ETL 處理有部分失敗！')
-        exit(1)
-    exit(0)
+        sys.exit(1)
+    sys.exit(0)
