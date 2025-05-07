@@ -8,7 +8,7 @@ import datetime
 import sys
 import pandas as pd
 import pyodbc
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 # 日誌設定
 logging.basicConfig(
@@ -32,21 +32,19 @@ def load_db_config(path="db.json"):
 
 
 def build_pyodbc_conn(cfg):
-    driver = "{ODBC Driver 17 for SQL Server}"
-    server = cfg['server']
+    drv = "{ODBC Driver 17 for SQL Server}"
+    srv = cfg['server']
     port = cfg.get('port', 1433)
-    database = cfg['database']
+    db = cfg['database']
     uid = cfg['username']
     pwd = cfg['password']
     opts = cfg.get('options', {})
-    encrypt = 'yes' if opts.get('encrypt') else 'no'
+    enc = 'yes' if opts.get('encrypt') else 'no'
     trust = 'yes' if opts.get('trustServerCertificate') else 'no'
     conn_str = (
-        f"DRIVER={driver};"
-        f"SERVER={server},{port};"
-        f"DATABASE={database};"
-        f"UID={uid};PWD={pwd};"
-        f"Encrypt={encrypt};TrustServerCertificate={trust};"
+        f"DRIVER={drv};"
+        f"SERVER={srv},{port};DATABASE={db};"
+        f"UID={uid};PWD={pwd};Encrypt={enc};TrustServerCertificate={trust};"
     )
     return pyodbc.connect(conn_str)
 
@@ -54,19 +52,18 @@ def build_pyodbc_conn(cfg):
 
 
 def build_sqlalchemy_engine(cfg):
-    driver = 'ODBC Driver 17 for SQL Server'.replace(' ', '+')
-    server = cfg['server']
+    drv = 'ODBC Driver 17 for SQL Server'.replace(' ', '+')
+    srv = cfg['server']
     port = cfg.get('port', 1433)
-    database = cfg['database']
+    db = cfg['database']
     uid = cfg['username']
     pwd = cfg['password']
     opts = cfg.get('options', {})
-    encrypt = 'yes' if opts.get('encrypt') else 'no'
+    enc = 'yes' if opts.get('encrypt') else 'no'
     trust = 'yes' if opts.get('trustServerCertificate') else 'no'
     uri = (
-        f"mssql+pyodbc://{uid}:{pwd}@{server},{port}/{database}"
-        f"?driver={driver}"
-        f"&Encrypt={encrypt}&TrustServerCertificate={trust}"
+        f"mssql+pyodbc://{uid}:{pwd}@{srv},{port}/{db}?driver={drv}"
+        f"&Encrypt={enc}&TrustServerCertificate={trust}"
     )
     return create_engine(uri, fast_executemany=True)
 
@@ -88,8 +85,8 @@ def backup_and_truncate(engine, table):
     ts = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     backup = f"{table}_backup_{ts}"
     with engine.begin() as conn:
-        conn.execute(f"SELECT * INTO {backup} FROM {table}")
-        conn.execute(f"TRUNCATE TABLE {table}")
+        conn.execute(text(f"SELECT * INTO {backup} FROM {table}"))
+        conn.execute(text(f"TRUNCATE TABLE {table}"))
     return backup
 
 # 執行單筆 ETL
@@ -114,14 +111,19 @@ def run_etl(query, src_conn, tgt_engine):
 
 def record_summary(engine, mes_stat, sap_stat, mes_cnt, sap_cnt):
     now = datetime.datetime.now()
-    rec = pd.DataFrame([{
+    stmt = text(
+        "INSERT INTO ETL_SUMMARY (run_time, mes_status, sap_status, mes_rows, sap_rows)"
+        " VALUES (:run_time, :mes_status, :sap_status, :mes_rows, :sap_rows)"
+    )
+    params = {
         'run_time': now,
         'mes_status': mes_stat,
         'sap_status': sap_stat,
         'mes_rows': mes_cnt,
         'sap_rows': sap_cnt
-    }])
-    rec.to_sql('ETL_SUMMARY', engine, if_exists='append', index=False)
+    }
+    with engine.begin() as conn:
+        conn.execute(stmt, params)
 
 
 if __name__ == '__main__':
