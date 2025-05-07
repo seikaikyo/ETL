@@ -40,6 +40,7 @@ test_connection:
     - echo "檢查資料庫設定..."
     - grep -A 5 "source_db" db.json || echo "警告：找不到來源資料庫配置"
     - grep -A 5 "target_db" db.json || echo "警告：找不到目標資料庫配置"
+    - grep -A 5 "sap_db" db.json || echo "警告：找不到 SAP 資料庫配置"
     - python app.py || echo "連線測試失敗，請確認 ODBC 驅動程式是否正確安裝"
   artifacts:
     paths:
