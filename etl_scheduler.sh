@@ -60,9 +60,11 @@ ETL_STATUS=$?
 if [ $ETL_STATUS -eq 0 ]; then
     echo "ETL 處理成功完成！" | tee -a $LOG_FILE
     ETL_RESULT="成功"
+    STATUS_CLASS="success"
 else
     echo "ETL 處理失敗，錯誤碼: $ETL_STATUS" | tee -a $LOG_FILE
     ETL_RESULT="失敗"
+    STATUS_CLASS="error"
 fi
 
 # 產生 ETL 監控報告
@@ -92,13 +94,22 @@ cp $REPORT_FILE $LATEST_REPORT || echo "無法複製到 $LATEST_REPORT" | tee -a
 # 產生 HTML 報告
 echo "產生 HTML 格式報告..." | tee -a $LOG_FILE
 
+# 儲存當前時間和主機名到變數
+CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+HOST_NAME=$(hostname)
+UPTIME_INFO=$(uptime | sed 's/.*average://g')
+USER_NAME=$(whoami)
+DISK_INFO=$(df -h | grep -v tmpfs)
+MEM_INFO=$(free -h)
+REPORT_CONTENT=$(cat $REPORT_FILE 2>/dev/null || echo "無法讀取報告文件 $REPORT_FILE")
+
 # 創建 HTML 報告頭部
-cat > $HTML_REPORT << EOL
+cat > $HTML_REPORT << EOF
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>ETL 執行報告 - $(date '+%Y-%m-%d %H:%M')</title>
+    <title>ETL 執行報告 - $CURRENT_TIME</title>
     <style>
         body { 
             font-family: Arial, sans-serif; 
@@ -182,33 +193,33 @@ cat > $HTML_REPORT << EOL
     <div class="container">
         <div class="header">
             <h1>ETL 執行報告</h1>
-            <p><strong>產生時間:</strong> $(date '+%Y-%m-%d %H:%M:%S')</p>
+            <p><strong>產生時間:</strong> $CURRENT_TIME</p>
         </div>
         
-        <div class="summary">
+        <div class="summary ${STATUS_CLASS}">
             <h2>執行摘要</h2>
             <p><strong>執行狀態:</strong> 
-                <span class="status-badge status-${ETL_RESULT == "失敗" ? "error" : "success"}">
-                    ${ETL_RESULT}
+                <span class="status-badge status-${STATUS_CLASS}">
+                    $ETL_RESULT
                 </span>
             </p>
-            <p><strong>主機名稱:</strong> $(hostname)</p>
-            <p><strong>執行時間:</strong> $(date '+%Y-%m-%d %H:%M:%S')</p>
-            <p><strong>執行用戶:</strong> $(whoami)</p>
-            <p><strong>系統負載:</strong> $(uptime | sed 's/.*average://g')</p>
+            <p><strong>主機名稱:</strong> $HOST_NAME</p>
+            <p><strong>執行時間:</strong> $CURRENT_TIME</p>
+            <p><strong>執行用戶:</strong> $USER_NAME</p>
+            <p><strong>系統負載:</strong> $UPTIME_INFO</p>
         </div>
         
         <h2>系統資訊</h2>
         <div class="system-info">
             <p><strong>磁碟使用狀況:</strong></p>
-            <pre>$(df -h | grep -v tmpfs)</pre>
+            <pre>$DISK_INFO</pre>
             
             <p><strong>記憶體使用狀況:</strong></p>
-            <pre>$(free -h)</pre>
+            <pre>$MEM_INFO</pre>
         </div>
         
         <h2>ETL 執行詳細資訊</h2>
-        <pre>$(cat $REPORT_FILE || echo "無法讀取報告文件 $REPORT_FILE")</pre>
+        <pre>$REPORT_CONTENT</pre>
         
         <div class="footer">
             <p>YS ETL 系統 - 自動生成報告</p>
@@ -217,7 +228,7 @@ cat > $HTML_REPORT << EOL
     </div>
 </body>
 </html>
-EOL
+EOF
 
 # 檢查 HTML 報告是否生成
 if [ ! -f "$HTML_REPORT" ]; then
