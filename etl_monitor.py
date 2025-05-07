@@ -54,12 +54,12 @@ def get_etl_statistics(days=7):
         # 載入資料庫配置
         config = load_db_config()
         target_config = config["tableau_db"]
-        
+
         # 連接目標資料庫
         conn_str = get_connection_string(target_config)
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
-        
+
         # 檢查 ETL_SUMMARY 表是否存在
         cursor.execute("""
         IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ETL_SUMMARY')
@@ -72,15 +72,15 @@ def get_etl_statistics(days=7):
         END
         """)
         result = cursor.fetchone()
-        
+
         if result[0] == 'Table does not exist':
             logger.warning("ETL_SUMMARY 表不存在，尚未有 ETL 執行記錄")
             print("\n尚未有 ETL 執行記錄，請先執行 ETL 處理。\n")
             return None
-        
+
         # 查詢最近 n 天的 ETL 執行紀錄
         recent_date = datetime.now() - timedelta(days=days)
-        
+
         # 獲取每日執行統計
         daily_stats_query = f"""
         SELECT 
@@ -94,9 +94,9 @@ def get_etl_statistics(days=7):
         GROUP BY CONVERT(date, ETL_DATE)
         ORDER BY ExecutionDate DESC
         """
-        
+
         daily_stats_df = pd.read_sql(daily_stats_query, conn)
-        
+
         # 獲取最近一次執行的詳細資訊
         last_execution_query = """
         SELECT TOP 10
@@ -109,9 +109,9 @@ def get_etl_statistics(days=7):
         FROM ETL_SUMMARY
         ORDER BY [ETL_DATE] DESC
         """
-        
+
         last_execution_df = pd.read_sql(last_execution_query, conn)
-        
+
         # 獲取各目標表的記錄數
         table_stats_query = """
         SELECT 
@@ -126,18 +126,18 @@ def get_etl_statistics(days=7):
         ) latest ON s.TARGET_TABLE = latest.TARGET_TABLE AND s.ETL_DATE = latest.MaxDate
         GROUP BY s.TARGET_TABLE
         """
-        
+
         table_stats_df = pd.read_sql(table_stats_query, conn)
-        
+
         # 關閉連接
         conn.close()
-        
+
         return {
             'daily_stats': daily_stats_df,
             'last_execution': last_execution_df,
             'table_stats': table_stats_df
         }
-        
+
     except Exception as e:
         logger.error(f"獲取 ETL 統計資訊時出錯: {e}")
         print(f"\n獲取 ETL 統計資訊時出錯: {e}\n")
@@ -148,30 +148,31 @@ def generate_etl_report(stats, output_file=None):
     """產生 ETL 執行報表"""
     if not stats:
         return
-    
+
     # 獲取當前時間
     now = datetime.now()
-    
+
     # 報表標頭
     report = []
     report.append("=" * 80)
     report.append(f"ETL 執行統計報表 - 產生時間: {now.strftime('%Y-%m-%d %H:%M:%S')}")
     report.append("=" * 80)
-    
+
     # 最近執行記錄
     report.append("\n最近執行記錄:")
     report.append("-" * 80)
-    
+
     if not stats['last_execution'].empty:
         last_exec = stats['last_execution'].copy()
         # 格式化日期時間
-        last_exec['ETL_DATE'] = last_exec['ETL_DATE'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        
+        last_exec['ETL_DATE'] = last_exec['ETL_DATE'].dt.strftime(
+            '%Y-%m-%d %H:%M:%S')
+
         # 使用 tabulate 格式化表格
         table = tabulate(
             last_exec,
             headers=[
-                "時間戳記", "來源類型", "查詢名稱", 
+                "時間戳記", "來源類型", "查詢名稱",
                 "目標資料表", "資料列數", "ETL 執行時間"
             ],
             tablefmt="grid",
@@ -180,20 +181,20 @@ def generate_etl_report(stats, output_file=None):
         report.append(table)
     else:
         report.append("無執行記錄")
-    
+
     # 日統計資料
     report.append("\n\n每日執行統計:")
     report.append("-" * 80)
-    
+
     if not stats['daily_stats'].empty:
         daily = stats['daily_stats'].copy()
         # 格式化日期
         daily['ExecutionDate'] = daily['ExecutionDate'].dt.strftime('%Y-%m-%d')
-        
+
         table = tabulate(
             daily,
             headers=[
-                "執行日期", "總執行次數", "MES執行次數", 
+                "執行日期", "總執行次數", "MES執行次數",
                 "SAP執行次數", "總處理資料列數"
             ],
             tablefmt="grid",
@@ -202,16 +203,17 @@ def generate_etl_report(stats, output_file=None):
         report.append(table)
     else:
         report.append("無每日統計資料")
-    
+
     # 資料表統計資料
     report.append("\n\n資料表最新狀態:")
     report.append("-" * 80)
-    
+
     if not stats['table_stats'].empty:
         tables = stats['table_stats'].copy()
         # 格式化日期時間
-        tables['LastUpdated'] = tables['LastUpdated'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        
+        tables['LastUpdated'] = tables['LastUpdated'].dt.strftime(
+            '%Y-%m-%d %H:%M:%S')
+
         table = tabulate(
             tables,
             headers=["目標資料表", "最近更新時間", "資料列數"],
@@ -221,13 +223,13 @@ def generate_etl_report(stats, output_file=None):
         report.append(table)
     else:
         report.append("無資料表統計資料")
-    
+
     # 形成完整報表
     report_text = "\n".join(report)
-    
+
     # 輸出報表
     print(report_text)
-    
+
     # 如果指定了輸出文件，則寫入文件
     if output_file:
         try:
@@ -245,11 +247,11 @@ def create_etl_dashboard():
         # 載入資料庫配置
         config = load_db_config()
         target_config = config["tableau_db"]
-        
+
         # 連接目標資料庫
         conn_str = get_connection_string(target_config)
         conn = pyodbc.connect(conn_str)
-        
+
         # 檢查 ETL_SUMMARY 表是否存在
         cursor = conn.cursor()
         cursor.execute("""
@@ -263,14 +265,14 @@ def create_etl_dashboard():
         END
         """)
         result = cursor.fetchone()
-        
+
         if result[0] == 'Table does not exist':
             logger.warning("ETL_SUMMARY 表不存在，尚未有 ETL 執行記錄")
             return None
-        
+
         # 獲取最近 30 天的執行記錄
         recent_date = datetime.now() - timedelta(days=30)
-        
+
         # 獲取每日執行統計
         daily_stats_query = f"""
         SELECT 
@@ -284,9 +286,9 @@ def create_etl_dashboard():
         GROUP BY CONVERT(date, ETL_DATE)
         ORDER BY ExecutionDate ASC
         """
-        
+
         daily_stats_df = pd.read_sql(daily_stats_query, conn)
-        
+
         # 獲取最近的執行記錄
         last_execution_query = """
         SELECT TOP 20
@@ -299,26 +301,28 @@ def create_etl_dashboard():
         FROM ETL_SUMMARY
         ORDER BY [ETL_DATE] DESC
         """
-        
+
         last_execution_df = pd.read_sql(last_execution_query, conn)
-        
+
         # 關閉連接
         conn.close()
-        
+
         # 格式化數據供圖表使用
         if not daily_stats_df.empty:
-            daily_stats_df['ExecutionDate'] = daily_stats_df['ExecutionDate'].dt.strftime('%Y-%m-%d')
+            daily_stats_df['ExecutionDate'] = daily_stats_df['ExecutionDate'].dt.strftime(
+                '%Y-%m-%d')
             chart_data = daily_stats_df.to_dict('records')
         else:
             chart_data = []
-        
+
         # 格式化最近執行記錄
         if not last_execution_df.empty:
-            last_execution_df['ETL_DATE'] = last_execution_df['ETL_DATE'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            last_execution_df['ETL_DATE'] = last_execution_df['ETL_DATE'].dt.strftime(
+                '%Y-%m-%d %H:%M:%S')
             last_executions = last_execution_df.to_dict('records')
         else:
             last_executions = []
-        
+
         # 創建 HTML 文件
         html_template = f"""<!DOCTYPE html>
 <html>
@@ -478,41 +482,41 @@ def create_etl_dashboard():
         
         // 填充最近執行記錄表格
         const recordsTable = document.getElementById('execution-records');
-        lastExecutions.forEach(record => {
+        lastExecutions.forEach(record => {{
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td>${record.ETL_DATE}</td>
-                <td>${record.SOURCE_TYPE}</td>
-                <td>${record.QUERY_NAME}</td>
-                <td>${record.TARGET_TABLE}</td>
-                <td>${record.ROW_COUNT.toLocaleString()}</td>
+                <td>${{record.ETL_DATE}}</td>
+                <td>${{record.SOURCE_TYPE}}</td>
+                <td>${{record.QUERY_NAME}}</td>
+                <td>${{record.TARGET_TABLE}}</td>
+                <td>${{record.ROW_COUNT.toLocaleString()}}</td>
             `;
             recordsTable.appendChild(row);
-        });
+        }});
         
         // 計算摘要數據
         const today = new Date().toISOString().split('T')[0];
         const todayData = chartData.find(d => d.ExecutionDate === today);
         
         // 今日狀態
-        if (todayData) {
+        if (todayData) {{
             const todayStatus = document.getElementById('today-status');
             todayStatus.innerHTML = `
                 <div class="status-badge status-success">已執行</div>
-                <p>執行次數: ${todayData.TotalExecutions}</p>
-                <p>MES: ${todayData.MESExecutions} | SAP: ${todayData.SAPExecutions}</p>
+                <p>執行次數: ${{todayData.TotalExecutions}}</p>
+                <p>MES: ${{todayData.MESExecutions}} | SAP: ${{todayData.SAPExecutions}}</p>
             `;
-        } else {
+        }} else {{
             document.getElementById('today-status').innerHTML = `
                 <div class="status-badge status-warning">尚未執行</div>
                 <p>今日尚未執行 ETL 處理</p>
             `;
-        }
+        }}
         
         // 總處理資料量
         const totalRows = chartData.reduce((sum, data) => sum + data.TotalRowsProcessed, 0);
         document.getElementById('total-rows').innerHTML = `
-            <h2>${totalRows.toLocaleString()}</h2>
+            <h2>${{totalRows.toLocaleString()}}</h2>
             <p>筆資料已處理</p>
         `;
         
@@ -524,78 +528,81 @@ def create_etl_dashboard():
         
         // 執行次數圖表
         const executionCtx = document.getElementById('executionChart').getContext('2d');
-        const executionChart = new Chart(executionCtx, {
+        const executionChart = new Chart(executionCtx, {{
             type: 'bar',
-            data: {
+            data: {{
                 labels: chartData.map(data => data.ExecutionDate),
                 datasets: [
-                    {
+                    {{
                         label: 'MES 執行次數',
                         data: chartData.map(data => data.MESExecutions),
                         backgroundColor: 'rgba(54, 162, 235, 0.5)',
                         borderColor: 'rgba(54, 162, 235, 1)',
                         borderWidth: 1
-                    },
-                    {
+                    }},
+                    {{
                         label: 'SAP 執行次數',
                         data: chartData.map(data => data.SAPExecutions),
                         backgroundColor: 'rgba(255, 99, 132, 0.5)',
                         borderColor: 'rgba(255, 99, 132, 1)',
                         borderWidth: 1
-                    }
+                    }}
                 ]
-            },
-            options: {
+            }},
+            options: {{
                 responsive: true,
-                scales: {
-                    y: {
+                scales: {{
+                    y: {{
                         beginAtZero: true,
-                        ticks: {
+                        ticks: {{
                             stepSize: 1
-                        }
-                    }
-                }
-            }
-        });
+                        }}
+                    }}
+                }}
+            }}
+        }});
         
         // 資料處理量圖表
         const rowsCtx = document.getElementById('rowsChart').getContext('2d');
-        const rowsChart = new Chart(rowsCtx, {
+        const rowsChart = new Chart(rowsCtx, {{
             type: 'line',
-            data: {
+            data: {{
                 labels: chartData.map(data => data.ExecutionDate),
-                datasets: [{
+                datasets: [{{
                     label: '處理資料列數',
                     data: chartData.map(data => data.TotalRowsProcessed),
                     fill: false,
                     backgroundColor: 'rgba(75, 192, 192, 0.5)',
                     borderColor: 'rgba(75, 192, 192, 1)',
                     tension: 0.1
-                }]
-            },
-            options: {
+                }}]
+            }},
+            options: {{
                 responsive: true
-            }
-        });
+            }}
+        }});
     </script>
 </body>
 </html>
 """
-        
+
         # 替換 JSON 數據
         import json
-        html_template = html_template.replace('{JSON_CHART_DATA}', json.dumps(chart_data))
-        html_template = html_template.replace('{JSON_LAST_EXECUTIONS}', json.dumps(last_executions))
-        
+        html_template = html_template.replace(
+            '{JSON_CHART_DATA}', json.dumps(chart_data))
+        html_template = html_template.replace(
+            '{JSON_LAST_EXECUTIONS}', json.dumps(last_executions))
+
         # 輸出 HTML 文件
-        dashboard_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'etl_dashboard.html')
+        dashboard_path = os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), 'etl_dashboard.html')
         with open(dashboard_path, 'w', encoding='utf-8') as f:
             f.write(html_template)
-        
+
         logger.info(f"成功生成 ETL 儀表板: {dashboard_path}")
         print(f"\nETL 儀表板已生成: {dashboard_path}\n")
         return dashboard_path
-    
+
     except Exception as e:
         logger.error(f"生成 ETL 儀表板時出錯: {e}")
         print(f"\n生成 ETL 儀表板時出錯: {e}\n")
@@ -605,25 +612,27 @@ def create_etl_dashboard():
 def parse_arguments():
     """解析命令列參數"""
     parser = argparse.ArgumentParser(description='ETL 監控工具')
-    parser.add_argument('--days', type=int, default=7, help='顯示最近幾天的統計資料 (預設: 7)')
+    parser.add_argument('--days', type=int, default=7,
+                        help='顯示最近幾天的統計資料 (預設: 7)')
     parser.add_argument('--report', action='store_true', help='產生 ETL 執行報表')
     parser.add_argument('--output', type=str, help='報表輸出檔案路徑')
-    parser.add_argument('--dashboard', action='store_true', help='生成 ETL 儀表板 HTML')
+    parser.add_argument('--dashboard', action='store_true',
+                        help='生成 ETL 儀表板 HTML')
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     logger.info("=" * 50)
     logger.info(f"ETL 監控工具啟動 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
+
     # 解析命令列參數
     args = parse_arguments()
-    
+
     if args.dashboard:
         # 生成 ETL 儀表板
         logger.info("生成 ETL 儀表板...")
         dashboard_path = create_etl_dashboard()
-        
+
         if dashboard_path:
             print(f"ETL 儀表板已生成: {dashboard_path}")
             # 嘗試自動打開儀表板
@@ -636,7 +645,7 @@ if __name__ == "__main__":
         # 產生 ETL 執行報表
         logger.info(f"產生 ETL 執行報表 (最近 {args.days} 天)...")
         stats = get_etl_statistics(args.days)
-        
+
         if stats:
             # 產生報表
             output_file = args.output if args.output else f"etl_report_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
@@ -645,8 +654,9 @@ if __name__ == "__main__":
         # 預設顯示 ETL 統計資訊
         logger.info(f"獲取 ETL 統計資訊 (最近 {args.days} 天)...")
         stats = get_etl_statistics(args.days)
-        
+
         if stats:
             generate_etl_report(stats)
-    
-    logger.info(f"ETL 監控工具執行完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    logger.info(
+        f"ETL 監控工具執行完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
