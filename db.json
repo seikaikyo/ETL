@@ -1,5 +1,5 @@
 {
-    "source_db": {
+    "mes_db": {
         "server": "10.6.51.147",
         "database": "yesiang-MES-AP_NEW",
         "username": "Selector",
@@ -10,7 +10,7 @@
             "trustServerCertificate": true
         }
     },
-    "target_db": {
+    "tableau_db": {
         "server": "10.6.51.202",
         "database": "TableauDB",
         "username": "TableauDB_user",

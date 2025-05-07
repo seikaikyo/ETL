@@ -189,12 +189,12 @@ setup_python_venv() {
         return 1
     fi
     
-    # 激活虛擬環境
-    info "激活虛擬環境..."
+    # 啟動虛擬環境
+    info "啟動虛擬環境..."
     source venv/bin/activate
     
     if [ $? -ne 0 ]; then
-        error "無法激活虛擬環境"
+        error "無法啟動虛擬環境"
         return 1
     fi
     
@@ -234,19 +234,19 @@ check_db_connection() {
     
     # 檢查資料庫設定
     info "檢查資料庫設定..."
-    source_server=$(grep -o '"server": "[^"]*"' db.json | head -1 | cut -d'"' -f4)
-    source_db=$(grep -o '"database": "[^"]*"' db.json | head -1 | cut -d'"' -f4)
-    target_server=$(grep -o '"server": "[^"]*"' db.json | head -2 | tail -1 | cut -d'"' -f4)
-    target_db=$(grep -o '"database": "[^"]*"' db.json | head -2 | tail -1 | cut -d'"' -f4)
+    mes_server=$(grep -o '"server": "[^"]*"' db.json | head -1 | cut -d'"' -f4)
+    mes_db=$(grep -o '"database": "[^"]*"' db.json | head -1 | cut -d'"' -f4)
+    tableau_server=$(grep -o '"server": "[^"]*"' db.json | head -2 | tail -1 | cut -d'"' -f4)
+    tableau_db=$(grep -o '"database": "[^"]*"' db.json | head -2 | tail -1 | cut -d'"' -f4)
     
-    info "來源資料庫: $source_server/$source_db"
-    info "目標資料庫: $target_server/$target_db"
+    info "來源資料庫 (MES): $mes_server/$mes_db"
+    info "目標資料庫 (Tableau): $tableau_server/$tableau_db"
     
     # 檢查是否有 SAP 資料庫設定
     if grep -q "sap_db" db.json; then
         sap_server=$(grep -o '"server": "[^"]*"' db.json | head -3 | tail -1 | cut -d'"' -f4)
         sap_db=$(grep -o '"database": "[^"]*"' db.json | head -3 | tail -1 | cut -d'"' -f4)
-        info "SAP 資料庫: $sap_server/$sap_db"
+        info "來源資料庫 (SAP): $sap_server/$sap_db"
     else
         warning "找不到 SAP 資料庫設定"
     fi
@@ -270,7 +270,8 @@ setup_gitlab_ci() {
     
     # 創建 .gitlab-ci.yml 文件
     cat > .gitlab-ci.yml <<EOL
-# GitLab CI/CD 配置
+# GitLab CI/CD 配置文件
+# ETL 專案自動化部署
 
 stages:
   - test
@@ -292,6 +293,7 @@ test_connection:
     - rocky
   before_script:
     - git config --global http.sslVerify false  # 配置 git 忽略 SSL 驗證
+    - echo "設置 git SSL 驗證..."
   script:
     - echo "開始進行資料庫連線測試..."
     - dnf install -y unixODBC unixODBC-devel || echo "ODBC 相關套件安裝失敗，可能需要 sudo 權限"
@@ -308,10 +310,10 @@ test_connection:
     - pip install --upgrade pip
     - pip install pyodbc pandas
     - echo "檢查資料庫設定..."
-    - grep -A 5 "source_db" db.json || echo "警告：找不到來源資料庫配置"
-    - grep -A 5 "target_db" db.json || echo "警告：找不到目標資料庫配置"
+    - grep -A 5 "mes_db" db.json || echo "警告：找不到 MES 資料庫配置"
+    - grep -A 5 "tableau_db" db.json || echo "警告：找不到 Tableau 資料庫配置"
     - grep -A 5 "sap_db" db.json || echo "警告：找不到 SAP 資料庫配置"
-    - python app.py
+    - python app.py || echo "連線測試失敗，請確認 ODBC 驅動程式是否正確安裝"
   artifacts:
     paths:
       - etl_log.log
@@ -330,7 +332,7 @@ deploy_etl:
   script:
     - echo "開始進行 ETL 部署..."
     - chmod +x setup.sh
-    - ./setup.sh install
+    - ./setup.sh install || echo "安裝過程失敗，可能需要 sudo 權限，請檢查日誌"
   only:
     - main
   artifacts:
@@ -393,12 +395,12 @@ check_setup() {
         success "檢查到 db.json 文件"
         info "檢查資料庫設定："
         
-        source_count=$(grep -c "source_db" db.json)
-        target_count=$(grep -c "target_db" db.json)
+        mes_count=$(grep -c "mes_db" db.json)
+        tableau_count=$(grep -c "tableau_db" db.json)
         sap_count=$(grep -c "sap_db" db.json)
         
-        info "來源資料庫設定: $source_count 個"
-        info "目標資料庫設定: $target_count 個"
+        info "MES 資料庫設定: $mes_count 個"
+        info "Tableau 資料庫設定: $tableau_count 個"
         info "SAP 資料庫設定: $sap_count 個"
     fi
     

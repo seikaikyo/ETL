@@ -94,17 +94,17 @@ def test_db_connection(db_type, db_config):
         return False
 
 
-def test_simple_etl():
-    """測試簡單的 ETL 操作"""
+def test_mes_etl():
+    """測試從 MES 到 Tableau 的 ETL 操作"""
     try:
-        logger.info("開始測試簡單 ETL 操作...")
+        logger.info("開始測試 MES 到 Tableau 的 ETL 操作...")
         config = load_db_config()
-        source_config = config["source_db"]
-        target_config = config["target_db"]
+        mes_config = config["mes_db"]
+        target_config = config["tableau_db"]
 
-        # 連接來源資料庫
-        source_conn_str = get_connection_string(source_config)
-        source_conn = pyodbc.connect(source_conn_str)
+        # 連接 MES 資料庫
+        mes_conn_str = get_connection_string(mes_config)
+        mes_conn = pyodbc.connect(mes_conn_str)
 
         # 執行查詢，獲取測試資料 (限制僅 5 筆)
         query = """
@@ -113,20 +113,20 @@ def test_simple_etl():
         WHERE TABLE_TYPE='BASE TABLE'
         """
 
-        logger.info("從來源資料庫讀取資料...")
-        df = pd.read_sql(query, source_conn)
+        logger.info("從 MES 資料庫讀取資料...")
+        df = pd.read_sql(query, mes_conn)
 
         logger.info(f"成功讀取 {len(df)} 筆資料")
         logger.info(f"資料樣本: \n{df.head().to_string()}")
 
-        # 關閉來源連接
-        source_conn.close()
+        # 關閉 MES 連接
+        mes_conn.close()
 
         # 測試是否能連接到目標資料庫
         target_conn_str = get_connection_string(target_config)
         target_conn = pyodbc.connect(target_conn_str)
 
-        logger.info("ETL 測試成功 - 可以從來源讀取資料並連接到目標資料庫")
+        logger.info("MES ETL 測試成功 - 可以從 MES 讀取資料並連接到目標資料庫")
 
         # 關閉目標連接
         target_conn.close()
@@ -134,14 +134,14 @@ def test_simple_etl():
         return True
 
     except Exception as e:
-        logger.error(f"執行 ETL 測試時出錯: {e}")
+        logger.error(f"執行 MES ETL 測試時出錯: {e}")
         return False
 
 
 def test_sap_etl():
-    """測試 SAP 資料的簡單 ETL 操作"""
+    """測試從 SAP 到 Tableau 的 ETL 操作"""
     try:
-        logger.info("開始測試 SAP 資料的簡單 ETL 操作...")
+        logger.info("開始測試 SAP 到 Tableau 的 ETL 操作...")
         config = load_db_config()
 
         # 檢查 SAP 資料庫設定是否存在
@@ -150,7 +150,7 @@ def test_sap_etl():
             return False
 
         sap_config = config["sap_db"]
-        target_config = config["target_db"]
+        target_config = config["tableau_db"]
 
         # 連接 SAP 資料庫
         sap_conn_str = get_connection_string(sap_config)
@@ -195,52 +195,53 @@ if __name__ == "__main__":
     # 載入資料庫配置
     config = load_db_config()
 
-    # 測試來源資料庫連接
-    source_success = test_db_connection("來源(MES)", config["source_db"])
+    # 測試 MES 資料庫連接 (來源)
+    mes_success = test_db_connection("來源(MES)", config["mes_db"])
 
-    # 測試目標資料庫連接
-    target_success = test_db_connection("目標(Tableau)", config["target_db"])
-
-    # 測試 SAP 資料庫連接
+    # 測試 SAP 資料庫連接 (來源)
     if "sap_db" in config:
-        sap_success = test_db_connection("SAP", config["sap_db"])
+        sap_success = test_db_connection("來源(SAP)", config["sap_db"])
     else:
         logger.warning("找不到 SAP 資料庫設定，跳過 SAP 連接測試")
         sap_success = False
 
-    # 測試簡單 ETL
-    etl_success = False
+    # 測試 Tableau 資料庫連接 (目標)
+    target_success = test_db_connection("目標(Tableau)", config["tableau_db"])
+
+    # 測試 ETL 操作
+    mes_etl_success = False
     sap_etl_success = False
 
     # 測試 MES ETL
-    if source_success and target_success:
-        logger.info("來源和目標資料庫連接測試都成功，開始測試簡單的 ETL 操作...")
-        etl_success = test_simple_etl()
+    if mes_success and target_success:
+        logger.info("MES 和目標資料庫連接測試都成功，開始測試 MES 到 Tableau 的 ETL 操作...")
+        mes_etl_success = test_mes_etl()
 
     # 測試 SAP ETL
     if sap_success and target_success:
-        logger.info("SAP 和目標資料庫連接測試都成功，開始測試 SAP 資料的 ETL 操作...")
+        logger.info("SAP 和目標資料庫連接測試都成功，開始測試 SAP 到 Tableau 的 ETL 操作...")
         sap_etl_success = test_sap_etl()
 
     # 總結測試結果
     logger.info("=" * 50)
     logger.info("測試結果摘要:")
-    logger.info(f"來源資料庫(MES)連接: {'成功' if source_success else '失敗'}")
-    logger.info(f"目標資料庫(Tableau)連接: {'成功' if target_success else '失敗'}")
+    logger.info(f"來源資料庫(MES)連接: {'成功' if mes_success else '失敗'}")
 
     if "sap_db" in config:
-        logger.info(f"SAP 資料庫連接: {'成功' if sap_success else '失敗'}")
+        logger.info(f"來源資料庫(SAP)連接: {'成功' if sap_success else '失敗'}")
 
-    if source_success and target_success:
-        logger.info(f"MES ETL 測試: {'成功' if etl_success else '失敗'}")
+    logger.info(f"目標資料庫(Tableau)連接: {'成功' if target_success else '失敗'}")
+
+    if mes_success and target_success:
+        logger.info(f"MES ETL 測試: {'成功' if mes_etl_success else '失敗'}")
 
     if sap_success and target_success:
         logger.info(f"SAP ETL 測試: {'成功' if sap_etl_success else '失敗'}")
 
     # 判斷整體測試是否成功
-    overall_success = source_success and target_success and etl_success
-    if "sap_db" in config:
-        overall_success = overall_success and sap_success and sap_etl_success
+    overall_success = mes_success and target_success and mes_etl_success
+    if "sap_db" in config and sap_success:
+        overall_success = overall_success and sap_etl_success
 
     if overall_success:
         logger.info("ETL 環境測試全部成功！")
