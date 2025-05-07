@@ -81,17 +81,17 @@ def get_etl_statistics(days=7):
         # 查詢最近 n 天的 ETL 執行紀錄
         recent_date = datetime.now() - timedelta(days=days)
 
-        # 獲取每日執行統計
+        # 獲取每日執行統計 - 使用 VARCHAR 格式化日期而不是 DATE 類型
         daily_stats_query = f"""
         SELECT 
-            CONVERT(date, ETL_DATE) AS ExecutionDate,
+            CONVERT(VARCHAR(10), ETL_DATE, 120) AS ExecutionDate,
             COUNT(*) AS TotalExecutions,
             SUM(CASE WHEN SOURCE_TYPE = 'MES' THEN 1 ELSE 0 END) AS MESExecutions,
             SUM(CASE WHEN SOURCE_TYPE = 'SAP' THEN 1 ELSE 0 END) AS SAPExecutions,
             SUM([ROW_COUNT]) AS TotalRowsProcessed
         FROM ETL_SUMMARY
         WHERE ETL_DATE >= '{recent_date.strftime('%Y-%m-%d')}'
-        GROUP BY CONVERT(date, ETL_DATE)
+        GROUP BY CONVERT(VARCHAR(10), ETL_DATE, 120)
         ORDER BY ExecutionDate DESC
         """
 
@@ -105,7 +105,7 @@ def get_etl_statistics(days=7):
             [QUERY_NAME],
             [TARGET_TABLE],
             [ROW_COUNT],
-            [ETL_DATE]
+            CONVERT(VARCHAR(19), ETL_DATE, 120) AS ETL_DATE
         FROM ETL_SUMMARY
         ORDER BY [ETL_DATE] DESC
         """
@@ -117,7 +117,7 @@ def get_etl_statistics(days=7):
         table_stats_query = """
         SELECT 
             s.TARGET_TABLE,
-            MAX(s.ETL_DATE) AS LastUpdated,
+            CONVERT(VARCHAR(19), MAX(s.ETL_DATE), 120) AS LastUpdated,
             MAX(s.[ROW_COUNT]) AS [Total_Rows]
         FROM ETL_SUMMARY s
         INNER JOIN (
@@ -165,9 +165,6 @@ def generate_etl_report(stats, output_file=None):
 
     if not stats['last_execution'].empty:
         last_exec = stats['last_execution'].copy()
-        # 格式化日期時間
-        last_exec['ETL_DATE'] = last_exec['ETL_DATE'].dt.strftime(
-            '%Y-%m-%d %H:%M:%S')
 
         # 使用 tabulate 格式化表格
         table = tabulate(
@@ -189,8 +186,6 @@ def generate_etl_report(stats, output_file=None):
 
     if not stats['daily_stats'].empty:
         daily = stats['daily_stats'].copy()
-        # 格式化日期
-        daily['ExecutionDate'] = daily['ExecutionDate'].dt.strftime('%Y-%m-%d')
 
         table = tabulate(
             daily,
@@ -211,9 +206,6 @@ def generate_etl_report(stats, output_file=None):
 
     if not stats['table_stats'].empty:
         tables = stats['table_stats'].copy()
-        # 格式化日期時間
-        tables['LastUpdated'] = tables['LastUpdated'].dt.strftime(
-            '%Y-%m-%d %H:%M:%S')
 
         # 修正: 將 'RowCount' 欄位替換為 'Total_Rows'
         table = tabulate(
@@ -276,17 +268,17 @@ def create_etl_dashboard():
         # 獲取最近 30 天的執行記錄
         recent_date = datetime.now() - timedelta(days=30)
 
-        # 獲取每日執行統計
+        # 獲取每日執行統計 - 直接從資料庫獲取格式化的日期字串
         daily_stats_query = f"""
         SELECT 
-            CONVERT(date, ETL_DATE) AS ExecutionDate,
+            CONVERT(VARCHAR(10), ETL_DATE, 120) AS ExecutionDate,
             COUNT(*) AS TotalExecutions,
             SUM(CASE WHEN SOURCE_TYPE = 'MES' THEN 1 ELSE 0 END) AS MESExecutions,
             SUM(CASE WHEN SOURCE_TYPE = 'SAP' THEN 1 ELSE 0 END) AS SAPExecutions,
             SUM([ROW_COUNT]) AS TotalRowsProcessed
         FROM ETL_SUMMARY
         WHERE ETL_DATE >= '{recent_date.strftime('%Y-%m-%d')}'
-        GROUP BY CONVERT(date, ETL_DATE)
+        GROUP BY CONVERT(VARCHAR(10), ETL_DATE, 120)
         ORDER BY ExecutionDate ASC
         """
 
@@ -300,7 +292,7 @@ def create_etl_dashboard():
             [QUERY_NAME],
             [TARGET_TABLE],
             [ROW_COUNT],
-            [ETL_DATE]
+            CONVERT(VARCHAR(19), ETL_DATE, 120) AS ETL_DATE
         FROM ETL_SUMMARY
         ORDER BY [ETL_DATE] DESC
         """
@@ -310,21 +302,9 @@ def create_etl_dashboard():
         # 關閉連接
         conn.close()
 
-        # 格式化數據供圖表使用
-        if not daily_stats_df.empty:
-            daily_stats_df['ExecutionDate'] = daily_stats_df['ExecutionDate'].dt.strftime(
-                '%Y-%m-%d')
-            chart_data = daily_stats_df.to_dict('records')
-        else:
-            chart_data = []
-
-        # 格式化最近執行記錄
-        if not last_execution_df.empty:
-            last_execution_df['ETL_DATE'] = last_execution_df['ETL_DATE'].dt.strftime(
-                '%Y-%m-%d %H:%M:%S')
-            last_executions = last_execution_df.to_dict('records')
-        else:
-            last_executions = []
+        # 讀取直接使用，不需要格式化
+        chart_data = daily_stats_df.to_dict('records')
+        last_executions = last_execution_df.to_dict('records')
 
         # 創建 HTML 文件
         html_template = f"""<!DOCTYPE html>
@@ -621,6 +601,8 @@ def parse_arguments():
     parser.add_argument('--output', type=str, help='報表輸出檔案路徑')
     parser.add_argument('--dashboard', action='store_true',
                         help='生成 ETL 儀表板 HTML')
+    parser.add_argument('--init', action='store_true',
+                        help='初始化 ETL 監控環境 (創建表並填入測試資料)')
     return parser.parse_args()
 
 
@@ -711,6 +693,26 @@ def check_and_create_etl_summary():
             VALUES (?, ?, ?, ?, ?, ?)
             """, yesterday.strftime("%Y%m%d%H%M%S"), 'SAP', 'sap_production_order', 'tableau_sap_production_order', 220, yesterday)
 
+            # 插入前兩天的測試數據
+            two_days_ago = today - timedelta(days=2)
+            cursor.execute("""
+            INSERT INTO ETL_SUMMARY 
+            ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE])
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, two_days_ago.strftime("%Y%m%d%H%M%S"), 'MES', 'mes_order_status', 'tableau_mes_order_status', 128, two_days_ago)
+
+            cursor.execute("""
+            INSERT INTO ETL_SUMMARY 
+            ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE])
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, two_days_ago.strftime("%Y%m%d%H%M%S"), 'MES', 'mes_material_loss', 'tableau_mes_material_loss', 103, two_days_ago)
+
+            cursor.execute("""
+            INSERT INTO ETL_SUMMARY 
+            ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE])
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, two_days_ago.strftime("%Y%m%d%H%M%S"), 'SAP', 'sap_production_order', 'tableau_sap_production_order', 215, two_days_ago)
+
             conn.commit()
             logger.info("已添加測試資料以初始化儀表板")
 
@@ -732,11 +734,16 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     # 檢查並創建 ETL_SUMMARY 表
-    check_result = check_and_create_etl_summary()
-    if check_result == 'Table created':
-        print("已創建 ETL_SUMMARY 表並添加測試資料，可以開始使用監控工具")
+    if args.init:
+        check_result = check_and_create_etl_summary()
+        if check_result == 'Table created':
+            print("已創建 ETL_SUMMARY 表並添加測試資料")
+        else:
+            print("ETL_SUMMARY 表已存在")
 
     if args.dashboard:
+        # 確保表存在
+        check_and_create_etl_summary()
         # 生成 ETL 儀表板
         logger.info("生成 ETL 儀表板...")
         dashboard_path = create_etl_dashboard()
@@ -750,6 +757,8 @@ if __name__ == "__main__":
             except:
                 pass
     elif args.report:
+        # 確保表存在
+        check_and_create_etl_summary()
         # 產生 ETL 執行報表
         logger.info(f"產生 ETL 執行報表 (最近 {args.days} 天)...")
         stats = get_etl_statistics(args.days)
@@ -759,6 +768,8 @@ if __name__ == "__main__":
             output_file = args.output if args.output else f"etl_report_{datetime.now().strftime('%Y%m%d%H%M%S')}.txt"
             generate_etl_report(stats, output_file)
     else:
+        # 確保表存在
+        check_and_create_etl_summary()
         # 預設顯示 ETL 統計資訊
         logger.info(f"獲取 ETL 統計資訊 (最近 {args.days} 天)...")
         stats = get_etl_statistics(args.days)
