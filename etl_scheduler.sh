@@ -16,6 +16,23 @@ LATEST_HTML="${REPORT_DIR}/etl_latest_report.html"
 mkdir -p $LOG_DIR
 mkdir -p $REPORT_DIR
 
+# 檢查目錄是否創建成功
+if [ ! -d "$LOG_DIR" ]; then
+    echo "錯誤: 無法創建日誌目錄 $LOG_DIR"
+    exit 1
+fi
+
+if [ ! -d "$REPORT_DIR" ]; then
+    echo "錯誤: 無法創建報告目錄 $REPORT_DIR"
+    exit 1
+fi
+
+# 輸出目錄結構，用於調試
+echo "目錄結構:"
+echo "- 當前目錄: $(pwd)"
+echo "- 日誌目錄: $LOG_DIR"
+echo "- 報告目錄: $REPORT_DIR"
+
 # 記錄開始時間
 echo "===== ETL 排程啟動 - $(date '+%Y-%m-%d %H:%M:%S') =====" | tee -a $LOG_FILE
 
@@ -52,8 +69,25 @@ fi
 echo "產生 ETL 執行報告..." | tee -a $LOG_FILE
 python etl_monitor.py --report --output=$REPORT_FILE >> $LOG_FILE 2>&1
 
+# 檢查報告是否生成
+if [ ! -f "$REPORT_FILE" ]; then
+    echo "警告: 無法生成報告文件 $REPORT_FILE, 嘗試使用相對路徑..." | tee -a $LOG_FILE
+    # 嘗試使用相對路徑
+    REPORT_FILE="./reports/etl_report_$(date +%Y%m%d%H%M).txt"
+    mkdir -p ./reports
+    python etl_monitor.py --report --output=$REPORT_FILE >> $LOG_FILE 2>&1
+fi
+
+# 再次檢查報告是否生成
+if [ ! -f "$REPORT_FILE" ]; then
+    echo "錯誤: 無法生成報告文件, 跳過後續步驟" | tee -a $LOG_FILE
+    deactivate
+    exit 1
+fi
+
 # 更新最新報告的連結
-cp $REPORT_FILE $LATEST_REPORT
+echo "更新最新報告連結..." | tee -a $LOG_FILE
+cp $REPORT_FILE $LATEST_REPORT || echo "無法複製到 $LATEST_REPORT" | tee -a $LOG_FILE
 
 # 產生 HTML 報告
 echo "產生 HTML 格式報告..." | tee -a $LOG_FILE
@@ -151,7 +185,7 @@ cat > $HTML_REPORT << EOL
             <p><strong>產生時間:</strong> $(date '+%Y-%m-%d %H:%M:%S')</p>
         </div>
         
-        <div class="summary ${ETL_RESULT == "失敗" ? "error" : ""}">
+        <div class="summary">
             <h2>執行摘要</h2>
             <p><strong>執行狀態:</strong> 
                 <span class="status-badge status-${ETL_RESULT == "失敗" ? "error" : "success"}">
@@ -174,7 +208,7 @@ cat > $HTML_REPORT << EOL
         </div>
         
         <h2>ETL 執行詳細資訊</h2>
-        <pre>$(cat $REPORT_FILE)</pre>
+        <pre>$(cat $REPORT_FILE || echo "無法讀取報告文件 $REPORT_FILE")</pre>
         
         <div class="footer">
             <p>YS ETL 系統 - 自動生成報告</p>
@@ -185,8 +219,13 @@ cat > $HTML_REPORT << EOL
 </html>
 EOL
 
-# 更新最新HTML報告的連結
-cp $HTML_REPORT $LATEST_HTML
+# 檢查 HTML 報告是否生成
+if [ ! -f "$HTML_REPORT" ]; then
+    echo "警告: 無法生成 HTML 報告 $HTML_REPORT" | tee -a $LOG_FILE
+else
+    # 更新最新HTML報告的連結
+    cp $HTML_REPORT $LATEST_HTML || echo "無法複製到 $LATEST_HTML" | tee -a $LOG_FILE
+fi
 
 # 產生儀表板 (如需要)
 echo "更新 ETL 監控儀表板..." | tee -a $LOG_FILE
@@ -194,18 +233,34 @@ python etl_monitor.py --dashboard >> $LOG_FILE 2>&1
 
 # 顯示報告位置
 echo "ETL執行報告已生成:" | tee -a $LOG_FILE
-echo "- 文字報告: $REPORT_FILE" | tee -a $LOG_FILE
-echo "- HTML報告: $HTML_REPORT" | tee -a $LOG_FILE
-echo "- 最新報告連結: $LATEST_REPORT" | tee -a $LOG_FILE
-echo "- 最新HTML連結: $LATEST_HTML" | tee -a $LOG_FILE
+if [ -f "$REPORT_FILE" ]; then
+    echo "- 文字報告: $REPORT_FILE" | tee -a $LOG_FILE
+fi
+if [ -f "$HTML_REPORT" ]; then
+    echo "- HTML報告: $HTML_REPORT" | tee -a $LOG_FILE
+fi
+if [ -f "$LATEST_REPORT" ]; then
+    echo "- 最新報告連結: $LATEST_REPORT" | tee -a $LOG_FILE
+fi
+if [ -f "$LATEST_HTML" ]; then
+    echo "- 最新HTML連結: $LATEST_HTML" | tee -a $LOG_FILE
+fi
 
-# 報告位置文件 (方便查找)
-echo "$(date '+%Y-%m-%d %H:%M:%S') - ETL執行 ${ETL_RESULT} - 報告位置: $REPORT_FILE, $HTML_REPORT" >> ${REPORT_DIR}/report_locations.log
+# 報告位置文件 (方便查找) - 使用相對或絕對路徑，取決於哪個可用
+REPORT_LOG_FILE="${REPORT_DIR}/report_locations.log"
+if [ ! -w "$(dirname "$REPORT_LOG_FILE")" ]; then
+    REPORT_LOG_FILE="./report_locations.log"
+fi
+echo "$(date '+%Y-%m-%d %H:%M:%S') - ETL執行 ${ETL_RESULT} - 報告位置: $REPORT_FILE, $HTML_REPORT" >> $REPORT_LOG_FILE
 
 # 若日誌檔案過多，清理舊檔
-find $LOG_DIR -name "etl_*.log" -mtime +30 -delete
-find $REPORT_DIR -name "etl_report_*.txt" -mtime +30 -delete
-find $REPORT_DIR -name "etl_report_*.html" -mtime +30 -delete
+if [ -d "$LOG_DIR" ]; then
+    find $LOG_DIR -name "etl_*.log" -mtime +30 -delete
+fi
+if [ -d "$REPORT_DIR" ]; then
+    find $REPORT_DIR -name "etl_report_*.txt" -mtime +30 -delete
+    find $REPORT_DIR -name "etl_report_*.html" -mtime +30 -delete
+fi
 
 # 記錄結束時間
 echo "===== ETL 排程結束 - $(date '+%Y-%m-%d %H:%M:%S') =====" | tee -a $LOG_FILE
