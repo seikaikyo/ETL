@@ -78,7 +78,7 @@ def load_queries(path):
         logger.error(f"載入查詢檔失敗: {path}, {e}")
         sys.exit(1)
 
-# 備份並清空表
+# 備份並清空目標表
 
 
 def backup_and_truncate(engine, table):
@@ -106,24 +106,28 @@ def run_etl(query, src_conn, tgt_engine):
     logger.info(f"已匯入 {len(df)} 筆至 {tgt}")
     return len(df)
 
-# 記錄摘要
+# 記錄 ETL 摘要，若失敗則警告
 
 
 def record_summary(engine, mes_stat, sap_stat, mes_cnt, sap_cnt):
     now = datetime.datetime.now()
-    stmt = text(
-        "INSERT INTO ETL_SUMMARY (run_time, mes_status, sap_status, mes_rows, sap_rows)"
-        " VALUES (:run_time, :mes_status, :sap_status, :mes_rows, :sap_rows)"
-    )
-    params = {
-        'run_time': now,
-        'mes_status': mes_stat,
-        'sap_status': sap_stat,
-        'mes_rows': mes_cnt,
-        'sap_rows': sap_cnt
-    }
-    with engine.begin() as conn:
-        conn.execute(stmt, params)
+    try:
+        stmt = text(
+            "INSERT INTO ETL_SUMMARY (run_time, mes_status, sap_status, mes_rows, sap_rows)"
+            " VALUES (:run_time, :mes_status, :sap_status, :mes_rows, :sap_rows)"
+        )
+        params = {
+            'run_time': now,
+            'mes_status': mes_stat,
+            'sap_status': sap_stat,
+            'mes_rows': mes_cnt,
+            'sap_rows': sap_cnt
+        }
+        with engine.begin() as conn:
+            conn.execute(stmt, params)
+        logger.info("ETL 摘要記錄已保存")
+    except Exception as e:
+        logger.warning(f"記錄 ETL_SUMMARY 失敗: {e}")
 
 
 if __name__ == '__main__':
@@ -142,14 +146,14 @@ if __name__ == '__main__':
     src_sap = build_pyodbc_conn(cfg['sap_db'])
     tgt_engine = build_sqlalchemy_engine(cfg['tableau_db'])
 
-    # 載入查詢
+    # 載入查詢定義
     mes_q = load_queries('mes_queries.json')
     sap_q = load_queries('sap_queries.json')
 
     mes_stat = sap_stat = '跳過'
     mes_cnt = sap_cnt = 0
 
-    # 執行 MES
+    # 執行 MES ETL
     if args.all or args.mes:
         logger.info('開始 MES ETL 流程...')
         try:
@@ -160,7 +164,7 @@ if __name__ == '__main__':
             logger.error(f"MES ETL 失敗: {e}")
             mes_stat = '失敗'
 
-    # 執行 SAP
+    # 執行 SAP ETL
     if args.all or args.sap:
         logger.info('開始 SAP ETL 流程...')
         try:
@@ -171,8 +175,9 @@ if __name__ == '__main__':
             logger.error(f"SAP ETL 失敗: {e}")
             sap_stat = '失敗'
 
-    # 記錄與結束
+    # 記錄摘要
     record_summary(tgt_engine, mes_stat, sap_stat, mes_cnt, sap_cnt)
+
     logger.info('='*60)
     logger.info(f"ETL 執行結果 - MES: {mes_stat}, SAP: {sap_stat}")
     if mes_stat == '失敗' or sap_stat == '失敗':
