@@ -23,7 +23,7 @@
     },
     "sap_db": {
         "server": "10.201.0.37",
-        "database": "SAP",
+        "database": "YS_DB_PRD",
         "username": "ITD_Tableau_RO",
         "password": "b7V9sSfQyTMeC46FguZwWv",
         "port": 1433,
