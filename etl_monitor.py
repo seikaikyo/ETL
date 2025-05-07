@@ -306,96 +306,101 @@ def create_etl_dashboard():
         chart_data = daily_stats_df.to_dict('records')
         last_executions = last_execution_df.to_dict('records')
 
+        # 導入 json 模組
+        import json
+        chart_data_json = json.dumps(chart_data)
+        last_executions_json = json.dumps(last_executions)
+
         # 創建 HTML 文件
-        html_template = f"""<!DOCTYPE html>
+        html_content = """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <title>YS ETL 執行監控儀表板</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {{
+        body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
             background-color: #f5f5f5;
-        }}
-        .container {{
+        }
+        .container {
             max-width: 1200px;
             margin: 0 auto;
             background-color: white;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }}
-        .header {{
+        }
+        .header {
             text-align: center;
             margin-bottom: 20px;
             padding-bottom: 10px;
             border-bottom: 1px solid #eee;
-        }}
-        .header h1 {{
+        }
+        .header h1 {
             margin: 0;
             color: #333;
-        }}
-        .summary {{
+        }
+        .summary {
             display: flex;
             justify-content: space-between;
             margin-bottom: 20px;
-        }}
-        .summary-card {{
+        }
+        .summary-card {
             background-color: #f9f9f9;
             padding: 15px;
             border-radius: 5px;
             width: 30%;
             box-shadow: 0 0 5px rgba(0,0,0,0.05);
-        }}
-        .chart-container {{
+        }
+        .chart-container {
             margin-bottom: 30px;
-        }}
-        .table-container {{
+        }
+        .table-container {
             margin-top: 30px;
-        }}
-        table {{
+        }
+        table {
             width: 100%;
             border-collapse: collapse;
-        }}
-        th, td {{
+        }
+        th, td {
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #ddd;
-        }}
-        th {{
+        }
+        th {
             background-color: #f2f2f2;
-        }}
-        tr:hover {{
+        }
+        tr:hover {
             background-color: #f5f5f5;
-        }}
-        .refresh-time {{
+        }
+        .refresh-time {
             text-align: right;
             font-size: 12px;
             color: #777;
             margin-top: 10px;
-        }}
-        .status-badge {{
+        }
+        .status-badge {
             display: inline-block;
             padding: 5px 10px;
             border-radius: 15px;
             font-size: 12px;
             font-weight: bold;
-        }}
-        .status-success {{
+        }
+        .status-success {
             background-color: #d4edda;
             color: #155724;
-        }}
-        .status-warning {{
+        }
+        .status-warning {
             background-color: #fff3cd;
             color: #856404;
-        }}
-        .status-danger {{
+        }
+        .status-danger {
             background-color: #f8d7da;
             color: #721c24;
-        }}
+        }
     </style>
 </head>
 <body>
@@ -458,48 +463,48 @@ def create_etl_dashboard():
         document.getElementById('refresh-time').textContent = new Date().toLocaleString();
         
         // 圖表資料
-        const chartData = {JSON_CHART_DATA};
+        const chartData = CHART_DATA_PLACEHOLDER;
         
         // 最近執行記錄
-        const lastExecutions = {JSON_LAST_EXECUTIONS};
+        const lastExecutions = LAST_EXECUTIONS_PLACEHOLDER;
         
         // 填充最近執行記錄表格
         const recordsTable = document.getElementById('execution-records');
-        lastExecutions.forEach(record => {{
+        lastExecutions.forEach(record => {
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td>${{record.ETL_DATE}}</td>
-                <td>${{record.SOURCE_TYPE}}</td>
-                <td>${{record.QUERY_NAME}}</td>
-                <td>${{record.TARGET_TABLE}}</td>
-                <td>${{record.ROW_COUNT.toLocaleString()}}</td>
+                <td>${record.ETL_DATE}</td>
+                <td>${record.SOURCE_TYPE}</td>
+                <td>${record.QUERY_NAME}</td>
+                <td>${record.TARGET_TABLE}</td>
+                <td>${record.ROW_COUNT.toLocaleString()}</td>
             `;
             recordsTable.appendChild(row);
-        }});
+        });
         
         // 計算摘要數據
         const today = new Date().toISOString().split('T')[0];
         const todayData = chartData.find(d => d.ExecutionDate === today);
         
         // 今日狀態
-        if (todayData) {{
+        if (todayData) {
             const todayStatus = document.getElementById('today-status');
             todayStatus.innerHTML = `
                 <div class="status-badge status-success">已執行</div>
-                <p>執行次數: ${{todayData.TotalExecutions}}</p>
-                <p>MES: ${{todayData.MESExecutions}} | SAP: ${{todayData.SAPExecutions}}</p>
+                <p>執行次數: ${todayData.TotalExecutions}</p>
+                <p>MES: ${todayData.MESExecutions} | SAP: ${todayData.SAPExecutions}</p>
             `;
-        }} else {{
+        } else {
             document.getElementById('today-status').innerHTML = `
                 <div class="status-badge status-warning">尚未執行</div>
                 <p>今日尚未執行 ETL 處理</p>
             `;
-        }}
+        }
         
         // 總處理資料量
         const totalRows = chartData.reduce((sum, data) => sum + data.TotalRowsProcessed, 0);
         document.getElementById('total-rows').innerHTML = `
-            <h2>${{totalRows.toLocaleString()}}</h2>
+            <h2>${totalRows.toLocaleString()}</h2>
             <p>筆資料已處理</p>
         `;
         
@@ -511,76 +516,75 @@ def create_etl_dashboard():
         
         // 執行次數圖表
         const executionCtx = document.getElementById('executionChart').getContext('2d');
-        const executionChart = new Chart(executionCtx, {{
+        const executionChart = new Chart(executionCtx, {
             type: 'bar',
-            data: {{
+            data: {
                 labels: chartData.map(data => data.ExecutionDate),
                 datasets: [
-                    {{
+                    {
                         label: 'MES 執行次數',
                         data: chartData.map(data => data.MESExecutions),
                         backgroundColor: 'rgba(54, 162, 235, 0.5)',
                         borderColor: 'rgba(54, 162, 235, 1)',
                         borderWidth: 1
-                    }},
-                    {{
+                    },
+                    {
                         label: 'SAP 執行次數',
                         data: chartData.map(data => data.SAPExecutions),
                         backgroundColor: 'rgba(255, 99, 132, 0.5)',
                         borderColor: 'rgba(255, 99, 132, 1)',
                         borderWidth: 1
-                    }}
+                    }
                 ]
-            }},
-            options: {{
+            },
+            options: {
                 responsive: true,
-                scales: {{
-                    y: {{
+                scales: {
+                    y: {
                         beginAtZero: true,
-                        ticks: {{
+                        ticks: {
                             stepSize: 1
-                        }}
-                    }}
-                }}
-            }}
-        }});
+                        }
+                    }
+                }
+            }
+        });
         
         // 資料處理量圖表
         const rowsCtx = document.getElementById('rowsChart').getContext('2d');
-        const rowsChart = new Chart(rowsCtx, {{
+        const rowsChart = new Chart(rowsCtx, {
             type: 'line',
-            data: {{
+            data: {
                 labels: chartData.map(data => data.ExecutionDate),
-                datasets: [{{
+                datasets: [{
                     label: '處理資料列數',
                     data: chartData.map(data => data.TotalRowsProcessed),
                     fill: false,
                     backgroundColor: 'rgba(75, 192, 192, 0.5)',
                     borderColor: 'rgba(75, 192, 192, 1)',
                     tension: 0.1
-                }}]
-            }},
-            options: {{
+                }]
+            },
+            options: {
                 responsive: true
-            }}
-        }});
+            }
+        });
     </script>
 </body>
 </html>
 """
 
-        # 替換 JSON 數據
-        import json
-        html_template = html_template.replace(
-            '{JSON_CHART_DATA}', json.dumps(chart_data))
-        html_template = html_template.replace(
-            '{JSON_LAST_EXECUTIONS}', json.dumps(last_executions))
+        # 替換佔位符
+        html_content = html_content.replace(
+            'CHART_DATA_PLACEHOLDER', chart_data_json)
+        html_content = html_content.replace(
+            'LAST_EXECUTIONS_PLACEHOLDER', last_executions_json)
 
         # 輸出 HTML 文件
         dashboard_path = os.path.join(os.path.dirname(
             os.path.abspath(__file__)), 'etl_dashboard.html')
         with open(dashboard_path, 'w', encoding='utf-8') as f:
-            f.write(html_template)
+            f.write(html_content)
 
         logger.info(f"成功生成 ETL 儀表板: {dashboard_path}")
         print(f"\nETL 儀表板已生成: {dashboard_path}\n")
