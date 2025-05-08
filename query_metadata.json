@@ -1,20 +1,20 @@
 {
     "queries": [
         {
-            "name": "mes/mes_order_status",
-            "sql_file": "mes_order_status.sql",
+            "name": "mes_order_status",
+            "sql_file": "mes/mes_order_status.sql",
             "target_table": "tableau_mes_order_status",
             "description": "MES工單狀態資料"
         },
         {
-            "name": "mes/mes_material_loss",
-            "sql_file": "mes_material_loss.sql",
+            "name": "mes_material_loss",
+            "sql_file": "mes/mes_material_loss.sql",
             "target_table": "tableau_mes_material_loss",
             "description": "MES物料損耗資料"
         },
         {
-            "name": "sap/sap_production_order",
-            "sql_file": "sap_production_order.sql",
+            "name": "sap_production_order",
+            "sql_file": "sap/sap_production_order.sql",
             "target_table": "tableau_sap_production_order",
             "description": "SAP生產訂單資料"
         }
