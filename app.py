@@ -283,6 +283,45 @@ def run_etl(query, src_conn, tgt_engine):
 
         raise
 
+# 增加一個用於記錄整體ETL執行摘要的函數
+
+
+def record_etl_summary(engine, mes_status, sap_status, mes_rows, sap_rows):
+    """記錄整體ETL執行摘要"""
+    try:
+        # 確保表中有正確的欄位
+        with engine.begin() as conn:
+            # 檢查表結構是否包含所需欄位
+            check_columns_sql = """
+            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                          WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'run_time')
+            BEGIN
+                ALTER TABLE ETL_SUMMARY ADD run_time DATETIME
+                ALTER TABLE ETL_SUMMARY ADD mes_status NVARCHAR(50)
+                ALTER TABLE ETL_SUMMARY ADD sap_status NVARCHAR(50)
+                ALTER TABLE ETL_SUMMARY ADD mes_rows INT
+                ALTER TABLE ETL_SUMMARY ADD sap_rows INT
+            END
+            """
+            conn.execute(text(check_columns_sql))
+
+        # 寫入執行摘要
+        with engine.begin() as conn:
+            stmt = text(
+                "INSERT INTO ETL_SUMMARY (run_time, mes_status, sap_status, mes_rows, sap_rows) "
+                "VALUES (GETDATE(), :mes_status, :sap_status, :mes_rows, :sap_rows)"
+            )
+            params = {
+                'mes_status': mes_status,
+                'sap_status': sap_status,
+                'mes_rows': mes_rows,
+                'sap_rows': sap_rows
+            }
+            conn.execute(stmt, params)
+        logger.info("已記錄ETL執行摘要")
+    except Exception as e:
+        logger.warning(f"記錄ETL執行摘要失敗: {e}")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -376,6 +415,9 @@ if __name__ == '__main__':
     logger.info('='*60)
     logger.info(
         f"ETL 執行結果 - MES: {mes_stat} ({mes_cnt}筆), SAP: {sap_stat} ({sap_cnt}筆)")
+
+    # 記錄整體ETL執行摘要
+    record_etl_summary(tgt_engine, mes_stat, sap_stat, mes_cnt, sap_cnt)
 
     # 關閉資料庫連線
     if src_mes is not None:
