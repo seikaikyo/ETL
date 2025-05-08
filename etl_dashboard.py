@@ -103,11 +103,11 @@ def build_sqlalchemy_engine(db_config):
     )
     return create_engine(uri)
 
-# 獲取資料表結構
+# 獲取資料表結構 - 修正引擎參數
 
 
 @st.cache_data
-def get_table_structure(engine, table_name):
+def get_table_structure(_engine, table_name):
     try:
         query = f"""
         SELECT 
@@ -122,16 +122,16 @@ def get_table_structure(engine, table_name):
         WHERE TABLE_NAME = '{table_name}'
         ORDER BY ORDINAL_POSITION
         """
-        return pd.read_sql(query, engine)
+        return pd.read_sql(query, _engine)
     except Exception as e:
         st.error(f"獲取表格結構失敗: {e}")
         return pd.DataFrame()
 
-# 獲取資料庫中所有表格
+# 獲取資料庫中所有表格 - 修正引擎參數
 
 
 @st.cache_data
-def get_all_tables(engine):
+def get_all_tables(_engine):
     try:
         query = """
         SELECT TABLE_NAME 
@@ -139,40 +139,40 @@ def get_all_tables(engine):
         WHERE TABLE_TYPE = 'BASE TABLE'
         ORDER BY TABLE_NAME
         """
-        return pd.read_sql(query, engine)
+        return pd.read_sql(query, _engine)
     except Exception as e:
         st.error(f"獲取表格列表失敗: {e}")
         return pd.DataFrame()
 
-# 獲取表格資料範例
+# 獲取表格資料範例 - 修正引擎參數
 
 
 @st.cache_data(ttl=300)  # 5分鐘緩存
-def get_table_sample(engine, table_name, limit=100):
+def get_table_sample(_engine, table_name, limit=100):
     try:
         query = f"SELECT TOP {limit} * FROM {table_name}"
-        return pd.read_sql(query, engine)
+        return pd.read_sql(query, _engine)
     except Exception as e:
         st.error(f"獲取表格資料範例失敗: {e}")
         return pd.DataFrame()
 
-# 獲取表格資料數量
+# 獲取表格資料數量 - 修正引擎參數
 
 
 @st.cache_data(ttl=300)  # 5分鐘緩存
-def get_table_count(engine, table_name):
+def get_table_count(_engine, table_name):
     try:
         query = f"SELECT COUNT(*) AS row_count FROM {table_name}"
-        return pd.read_sql(query, engine).iloc[0]['row_count']
+        return pd.read_sql(query, _engine).iloc[0]['row_count']
     except Exception as e:
         st.error(f"獲取表格資料數量失敗: {e}")
         return 0
 
-# 獲取 ETL 執行記錄
+# 獲取 ETL 執行記錄 - 修正引擎參數
 
 
 @st.cache_data(ttl=300)  # 5分鐘緩存
-def get_etl_summary(engine, days=7):
+def get_etl_summary(_engine, days=7):
     try:
         # 檢查表是否存在
         check_query = """
@@ -181,7 +181,7 @@ def get_etl_summary(engine, days=7):
             WHERE TABLE_NAME = 'ETL_SUMMARY'
         ) THEN 1 ELSE 0 END AS table_exists
         """
-        exists = pd.read_sql(check_query, engine).iloc[0]['table_exists']
+        exists = pd.read_sql(check_query, _engine).iloc[0]['table_exists']
 
         if not exists:
             return None
@@ -202,7 +202,7 @@ def get_etl_summary(engine, days=7):
         ORDER BY ExecutionDate DESC
         """
 
-        daily_stats = pd.read_sql(daily_stats_query, engine)
+        daily_stats = pd.read_sql(daily_stats_query, _engine)
 
         # 獲取最近執行記錄
         recent_query = """
@@ -217,7 +217,7 @@ def get_etl_summary(engine, days=7):
         ORDER BY [ETL_DATE] DESC
         """
 
-        recent_executions = pd.read_sql(recent_query, engine)
+        recent_executions = pd.read_sql(recent_query, _engine)
 
         # 獲取各目標表的記錄數
         table_stats_query = """
@@ -234,7 +234,7 @@ def get_etl_summary(engine, days=7):
         GROUP BY s.TARGET_TABLE
         """
 
-        table_stats = pd.read_sql(table_stats_query, engine)
+        table_stats = pd.read_sql(table_stats_query, _engine)
 
         return {
             'daily_stats': daily_stats,
@@ -245,14 +245,14 @@ def get_etl_summary(engine, days=7):
         st.error(f"獲取 ETL 執行記錄失敗: {e}")
         return None
 
-# 獲取一個欄位的資料分佈
+# 獲取一個欄位的資料分佈 - 修正引擎參數
 
 
 @st.cache_data(ttl=300)  # 5分鐘緩存
-def get_column_distribution(engine, table_name, column_name, limit=1000):
+def get_column_distribution(_engine, table_name, column_name, limit=1000):
     try:
         # 檢查欄位類型
-        structure = get_table_structure(engine, table_name)
+        structure = get_table_structure(_engine, table_name)
         col_info = structure[structure['COLUMN_NAME'] == column_name]
 
         if col_info.empty:
@@ -306,7 +306,7 @@ def get_column_distribution(engine, table_name, column_name, limit=1000):
             ORDER BY COUNT(*) DESC
             """
 
-        result = pd.read_sql(query, engine)
+        result = pd.read_sql(query, _engine)
         result['value'] = result['value'].astype(str)  # 確保值為字串類型
         return result
     except Exception as e:
