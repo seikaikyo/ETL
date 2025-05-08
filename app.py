@@ -1,24 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import argparse
-import logging
 import json
-import datetime
-import sys
-import os
-import pandas as pd
 import pyodbc
-from sqlalchemy import create_engine, text
+import pandas as pd
+import argparse
+import sys
 
-# 日誌設定
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - ETL_Process - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("ETL_Process")
-
-# 載入 DB 配置
+# 載入資料庫配置
 
 
 def load_db_config(path="db.json"):
@@ -26,13 +15,13 @@ def load_db_config(path="db.json"):
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        logger.error(f"載入 {path} 失敗: {e}")
+        print(f"載入 {path} 失敗: {e}")
         sys.exit(1)
 
-# 建立 pyodbc 連線
+# 建立資料庫連線
 
 
-def build_pyodbc_conn(cfg):
+def build_connection(cfg):
     drv = "{ODBC Driver 17 for SQL Server}"
     srv = cfg['server']
     port = cfg.get('port', 1433)
@@ -42,269 +31,144 @@ def build_pyodbc_conn(cfg):
     opts = cfg.get('options', {})
     enc = 'yes' if opts.get('encrypt') else 'no'
     trust = 'yes' if opts.get('trustServerCertificate') else 'no'
+
     conn_str = (
         f"DRIVER={drv};"
         f"SERVER={srv},{port};DATABASE={db};"
         f"UID={uid};PWD={pwd};Encrypt={enc};TrustServerCertificate={trust};"
     )
-    return pyodbc.connect(conn_str)
 
-# 建立 SQLAlchemy 引擎
-
-
-def build_sqlalchemy_engine(cfg):
-    drv = 'ODBC Driver 17 for SQL Server'.replace(' ', '+')
-    srv = cfg['server']
-    port = cfg.get('port', 1433)
-    db = cfg['database']
-    uid = cfg['username']
-    pwd = cfg['password']
-    opts = cfg.get('options', {})
-    enc = 'yes' if opts.get('encrypt') else 'no'
-    trust = 'yes' if opts.get('trustServerCertificate') else 'no'
-    uri = (
-        f"mssql+pyodbc://{uid}:{pwd}@{srv},{port}/{db}?driver={drv}"
-        f"&Encrypt={enc}&TrustServerCertificate={trust}"
-    )
-    return create_engine(uri, fast_executemany=True)
-
-# 讀取SQL文件
-
-
-def load_sql_file(sql_file):
     try:
-        # 取得當前腳本所在目錄的絕對路徑
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        # 拼接SQL文件的絕對路徑
-        sql_path = os.path.join(base_dir, sql_file)
-
-        with open(sql_path, 'r', encoding='utf-8') as f:
-            return f.read()
+        return pyodbc.connect(conn_str)
     except Exception as e:
-        logger.error(f"讀取SQL文件失敗: {sql_file}, {e}")
+        print(f"連接資料庫失敗: {e}")
         sys.exit(1)
 
-# 讀取查詢定義
+# 檢查資料表情況
 
 
-def load_queries(path):
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)['queries']
-    except Exception as e:
-        logger.error(f"載入查詢檔失敗: {path}, {e}")
-        sys.exit(1)
+def check_tables(conn):
+    cursor = conn.cursor()
+    print("=== 檢查資料表 ===")
 
-# 確保 ETL_SUMMARY 表存在且結構正確
+    # 取得所有資料表
+    cursor.execute(
+        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME")
+    tables = [row.TABLE_NAME for row in cursor.fetchall()]
+
+    print(f"找到 {len(tables)} 個資料表")
+    for table in tables[:10]:  # 只顯示前10個
+        print(f"- {table}")
+    if len(tables) > 10:
+        print(f"... 另外還有 {len(tables)-10} 個資料表")
+
+    # 檢查關鍵資料表
+    key_tables = ['MANUFACTURING_NO',
+                  'FEED_MATERIAL_DEVICE', 'BOM_COMPONENT', 'OPERATION']
+    for table in key_tables:
+        if table in tables:
+            cursor.execute(f"SELECT COUNT(*) FROM {table}")
+            count = cursor.fetchone()[0]
+            print(f"表 {table} 含有 {count} 筆資料")
+
+            # 檢查NULL值
+            cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE 1=2")
+            columns = [column[0] for column in cursor.description]
+
+            for col in columns:
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {col} IS NULL")
+                null_count = cursor.fetchone()[0]
+                if null_count > 0:
+                    percent = (null_count / count) * 100 if count > 0 else 0
+                    print(
+                        f"  - 欄位 {col} 有 {null_count} 筆NULL值 ({percent:.1f}%)")
+        else:
+            print(f"警告: 找不到關鍵資料表 {table}")
+
+# 執行診斷查詢
 
 
-def ensure_etl_summary_table(engine):
-    sql = """
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ETL_SUMMARY')
-    BEGIN
-        CREATE TABLE ETL_SUMMARY (
-            id INT IDENTITY(1,1) PRIMARY KEY,
-            run_time DATETIME,
-            mes_status NVARCHAR(50),
-            sap_status NVARCHAR(50),
-            mes_rows INT,
-            sap_rows INT
+def run_diagnostics(conn, sql_file=None):
+    print("\n=== 執行診斷查詢 ===")
+
+    if sql_file:
+        try:
+            with open(sql_file, 'r', encoding='utf-8') as f:
+                sql = f.read()
+            print(f"使用SQL檔案: {sql_file}")
+        except Exception as e:
+            print(f"讀取SQL檔案失敗: {e}")
+            return
+    else:
+        # 預設診斷查詢
+        sql = """
+        WITH SampleOrders AS (
+            SELECT TOP 10 MANUFACTURING_OD
+            FROM MANUFACTURING_NO
+            ORDER BY MANUFACTURING_OD DESC
         )
-    END
-    ELSE
-    BEGIN
-        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'run_time')
-        BEGIN
-            ALTER TABLE ETL_SUMMARY ADD run_time DATETIME
-        END
+        SELECT 
+            mn.MANUFACTURING_OD,
+            mn.MATERIAL,
+            mn.QTY,
+            fm.MATERIAL AS FM_MATERIAL,
+            fm.OPERATION,
+            fm.IN_QTY,
+            bc.COMPONENT,
+            bc.QTY AS BOM_QTY
+        FROM SampleOrders so
+        JOIN MANUFACTURING_NO mn ON so.MANUFACTURING_OD = mn.MANUFACTURING_OD
+        LEFT JOIN FEED_MATERIAL_DEVICE fm ON mn.MANUFACTURING_OD = fm.MANUFACTURING_OD
+        LEFT JOIN BOM_COMPONENT bc ON mn.MANUFACTURING_OD = bc.BOM AND fm.MATERIAL = bc.COMPONENT
+        """
 
-        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'mes_status')
-        BEGIN
-            ALTER TABLE ETL_SUMMARY ADD mes_status NVARCHAR(50)
-        END
-
-        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'sap_status')
-        BEGIN
-            ALTER TABLE ETL_SUMMARY ADD sap_status NVARCHAR(50)
-        END
-
-        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'mes_rows')
-        BEGIN
-            ALTER TABLE ETL_SUMMARY ADD mes_rows INT
-        END
-
-        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'sap_rows')
-        BEGIN
-            ALTER TABLE ETL_SUMMARY ADD sap_rows INT
-        END
-    END
-    """
     try:
-        with engine.begin() as conn:
-            conn.execute(text(sql))
-        logger.info("已確保 ETL_SUMMARY 表存在且結構正確")
+        df = pd.read_sql(sql, conn)
+        if df.empty:
+            print("查詢未返回任何資料")
+        else:
+            print(f"查詢返回 {len(df)} 筆資料")
+            print("\n資料範例:")
+            print(df.head().to_string())
+
+            # 檢查NULL值
+            null_counts = df.isnull().sum()
+            print("\nNULL值統計:")
+            for col, count in null_counts.items():
+                if count > 0:
+                    percent = (count / len(df)) * 100
+                    print(f"  - {col}: {count} ({percent:.1f}%)")
     except Exception as e:
-        logger.warning(f"檢查或創建 ETL_SUMMARY 表失敗: {e}")
-
-# 檢查表是否存在
+        print(f"執行診斷查詢失敗: {e}")
 
 
-def check_table_exists(engine, table):
-    sql = f"""
-    SELECT CASE WHEN EXISTS (
-        SELECT * FROM INFORMATION_SCHEMA.TABLES 
-        WHERE TABLE_NAME = '{table}'
-    ) THEN 1 ELSE 0 END
-    """
-    with engine.connect() as conn:
-        result = conn.execute(text(sql)).scalar()
-    return result == 1
-
-# 備份並清空目標表 (修改版)
-
-
-def backup_and_truncate(engine, table):
-    # 先檢查表是否存在
-    if not check_table_exists(engine, table):
-        logger.info(f"表 {table} 不存在，將創建新表")
-        return None  # 不執行備份和清空，返回None表示沒有執行備份
-
-    # 表存在，進行備份和清空
-    ts = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-    backup = f"{table}_backup_{ts}"
-    try:
-        with engine.begin() as conn:
-            conn.execute(text(f"SELECT * INTO {backup} FROM {table}"))
-            conn.execute(text(f"TRUNCATE TABLE {table}"))
-        return backup
-    except Exception as e:
-        logger.warning(f"備份或清空表 {table} 失敗: {e}")
-        return None
-
-# 執行單筆 ETL - 使用分批處理避免參數過多錯誤
-
-
-def run_etl(query, src_conn, tgt_engine):
-    name = query['name']
-    tgt = query['target_table']
-    sql_file = query['sql_file']
-
-    # 從SQL文件讀取SQL語句
-    sql = load_sql_file(sql_file)
-
-    logger.info(f"處理查詢: {name}")
-    df = pd.read_sql(sql, src_conn)
-    logger.info(f"讀取 {len(df)} 筆資料")
-
-    # 備份和清空表 (如果表存在)
-    backup = backup_and_truncate(tgt_engine, tgt)
-    if backup:
-        logger.info(f"備份 {tgt} 至 {backup}，並清空目標表")
-
-    # 分批處理，每批次最多75筆資料
-    batch_size = 75
-    total_rows = len(df)
-    processed = 0
-
-    # 使用if_exists='replace'來處理表不存在的情況
-    for i in range(0, total_rows, batch_size):
-        chunk = df.iloc[i:min(i+batch_size, total_rows)]
-        # 首次迭代使用replace，後續使用append
-        mode = 'replace' if i == 0 else 'append'
-        chunk.to_sql(tgt, tgt_engine, if_exists=mode,
-                     index=False, method=None)
-        processed += len(chunk)
-        if processed % 500 == 0 or processed == total_rows:
-            logger.info(
-                f"進度: {processed}/{total_rows} 筆 ({int(processed/total_rows*100)}%)")
-
-    logger.info(f"已匯入總計 {total_rows} 筆至 {tgt}")
-    return total_rows
-
-# 記錄 ETL 摘要，若失敗則警告
-
-
-def record_summary(engine, mes_stat, sap_stat, mes_cnt, sap_cnt):
-    now = datetime.datetime.now()
-    try:
-        stmt = text(
-            "INSERT INTO ETL_SUMMARY (run_time, mes_status, sap_status, mes_rows, sap_rows)"
-            " VALUES (:run_time, :mes_status, :sap_status, :mes_rows, :sap_rows)"
-        )
-        params = {
-            'run_time': now,
-            'mes_status': mes_stat,
-            'sap_status': sap_stat,
-            'mes_rows': mes_cnt,
-            'sap_rows': sap_cnt
-        }
-        with engine.begin() as conn:
-            conn.execute(stmt, params)
-        logger.info("ETL 摘要記錄已保存")
-    except Exception as e:
-        logger.warning(f"記錄 ETL_SUMMARY 失敗: {e}")
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--all', action='store_true')
-    parser.add_argument('--mes', action='store_true')
-    parser.add_argument('--sap', action='store_true')
+def main():
+    parser = argparse.ArgumentParser(description="MES資料診斷工具")
+    parser.add_argument("--sql", help="要執行的SQL檔案路徑")
     args = parser.parse_args()
 
-    logger.info('='*60)
-    logger.info(f"ETL 程序啟動 - {datetime.datetime.now():%Y-%m-%d %H:%M:%S}")
+    print("=== MES資料診斷工具 ===")
 
-    # 載入 DB 設定
-    cfg = load_db_config('db.json')
-    src_mes = build_pyodbc_conn(cfg['mes_db'])
-    src_sap = build_pyodbc_conn(cfg['sap_db'])
-    tgt_engine = build_sqlalchemy_engine(cfg['tableau_db'])
-
-    # 確保 ETL_SUMMARY 表結構正確
-    ensure_etl_summary_table(tgt_engine)
-
-    # 載入查詢定義
-    query_metadata = load_queries('query_metadata.json')
-    mes_q = [q for q in query_metadata if q['name'].startswith('mes_')]
-    sap_q = [q for q in query_metadata if q['name'].startswith('sap_')]
-
-    mes_stat = sap_stat = '跳過'
-    mes_cnt = sap_cnt = 0
-
-    # 執行 MES ETL
-    if args.all or args.mes:
-        logger.info('開始 MES ETL 流程...')
-        try:
-            for q in mes_q:
-                mes_cnt = run_etl(q, src_mes, tgt_engine)
-            mes_stat = '成功'
-        except Exception as e:
-            logger.error(f"MES ETL 失敗: {e}")
-            mes_stat = '失敗'
-
-    # 執行 SAP ETL
-    if args.all or args.sap:
-        logger.info('開始 SAP ETL 流程...')
-        try:
-            for q in sap_q:
-                sap_cnt = run_etl(q, src_sap, tgt_engine)
-            sap_stat = '成功'
-        except Exception as e:
-            logger.error(f"SAP ETL 失敗: {e}")
-            sap_stat = '失敗'
-
-    # 記錄摘要
-    record_summary(tgt_engine, mes_stat, sap_stat, mes_cnt, sap_cnt)
-
-    logger.info('='*60)
-    logger.info(f"ETL 執行結果 - MES: {mes_stat}, SAP: {sap_stat}")
-    if mes_stat == '失敗' or sap_stat == '失敗':
-        logger.error('ETL 處理有部分失敗！')
+    # 載入資料庫配置
+    cfg = load_db_config()
+    mes_cfg = cfg.get('mes_db')
+    if not mes_cfg:
+        print("錯誤: 找不到MES資料庫配置")
         sys.exit(1)
-    sys.exit(0)
+
+    # 連接MES資料庫
+    print(f"連接到MES資料庫: {mes_cfg['server']}/{mes_cfg['database']}")
+    conn = build_connection(mes_cfg)
+
+    # 執行診斷
+    check_tables(conn)
+    run_diagnostics(conn, args.sql)
+
+    # 關閉連線
+    conn.close()
+    print("\n診斷完成")
+
+
+if __name__ == "__main__":
+    main()
