@@ -17,6 +17,24 @@
             "sql_file": "sap/sap_production_order.sql",
             "target_table": "tableau_sap_production_order",
             "description": "SAP生產訂單資料"
+        },
+        {
+            "name": "mes_machine_time_diff",
+            "sql_file": "mes/mes_machine_time_diff.sql",
+            "target_table": "tableau_mes_machine_time_diff",
+            "description": "MES工機時差異資料"
+        },
+        {
+            "name": "mes_daily_dispatch",
+            "sql_file": "mes/mes_daily_dispatch.sql",
+            "target_table": "tableau_mes_daily_dispatch",
+            "description": "MES每日派工資料"
+        },
+        {
+            "name": "mes_daily_output",
+            "sql_file": "mes/mes_daily_output.sql",
+            "target_table": "tableau_mes_daily_output",
+            "description": "MES每日產出資料"
         }
     ]
 }
