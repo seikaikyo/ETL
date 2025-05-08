@@ -77,7 +77,19 @@ def load_sql_file(sql_file):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         # 拼接SQL文件的絕對路徑
         sql_path = os.path.join(base_dir, sql_file)
-
+        # 如果檔案不存在，嘗試在不同子目錄中查找
+        if not os.path.exists(sql_path):
+            # 根據查詢類型確定子目錄 (mes 或 sap)
+            query_type = os.path.basename(sql_file).split('_')[0]
+            sql_path_in_subdir = os.path.join(
+                base_dir, query_type, os.path.basename(sql_file))
+            # 嘗試在子目錄中查找SQL檔案
+            if os.path.exists(sql_path_in_subdir):
+                sql_path = sql_path_in_subdir
+            else:
+                # 如果仍找不到，記錄可能的路徑
+                logger.debug(f"嘗試查找SQL檔案於: {sql_path} 和 {sql_path_in_subdir}")
+                raise FileNotFoundError(f"找不到SQL檔案: {sql_file}")
         with open(sql_path, 'r', encoding='utf-8') as f:
             return f.read()
     except Exception as e:
