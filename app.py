@@ -151,16 +151,40 @@ def ensure_etl_summary_table(engine):
     except Exception as e:
         logger.warning(f"檢查或創建 ETL_SUMMARY 表失敗: {e}")
 
-# 備份並清空目標表
+# 檢查表是否存在
+
+
+def check_table_exists(engine, table):
+    sql = f"""
+    SELECT CASE WHEN EXISTS (
+        SELECT * FROM INFORMATION_SCHEMA.TABLES 
+        WHERE TABLE_NAME = '{table}'
+    ) THEN 1 ELSE 0 END
+    """
+    with engine.connect() as conn:
+        result = conn.execute(text(sql)).scalar()
+    return result == 1
+
+# 備份並清空目標表 (修改版)
 
 
 def backup_and_truncate(engine, table):
+    # 先檢查表是否存在
+    if not check_table_exists(engine, table):
+        logger.info(f"表 {table} 不存在，將創建新表")
+        return None  # 不執行備份和清空，返回None表示沒有執行備份
+
+    # 表存在，進行備份和清空
     ts = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     backup = f"{table}_backup_{ts}"
-    with engine.begin() as conn:
-        conn.execute(text(f"SELECT * INTO {backup} FROM {table}"))
-        conn.execute(text(f"TRUNCATE TABLE {table}"))
-    return backup
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f"SELECT * INTO {backup} FROM {table}"))
+            conn.execute(text(f"TRUNCATE TABLE {table}"))
+        return backup
+    except Exception as e:
+        logger.warning(f"備份或清空表 {table} 失敗: {e}")
+        return None
 
 # 執行單筆 ETL - 使用分批處理避免參數過多錯誤
 
@@ -176,18 +200,23 @@ def run_etl(query, src_conn, tgt_engine):
     logger.info(f"處理查詢: {name}")
     df = pd.read_sql(sql, src_conn)
     logger.info(f"讀取 {len(df)} 筆資料")
+
+    # 備份和清空表 (如果表存在)
     backup = backup_and_truncate(tgt_engine, tgt)
-    logger.info(f"備份 {tgt} 至 {backup}，並清空目標表")
+    if backup:
+        logger.info(f"備份 {tgt} 至 {backup}，並清空目標表")
 
     # 分批處理，每批次最多75筆資料
     batch_size = 75
     total_rows = len(df)
     processed = 0
 
+    # 使用if_exists='replace'來處理表不存在的情況
     for i in range(0, total_rows, batch_size):
         chunk = df.iloc[i:min(i+batch_size, total_rows)]
-        # 使用單筆插入方式（不使用multi）以避免參數限制錯誤
-        chunk.to_sql(tgt, tgt_engine, if_exists='append',
+        # 首次迭代使用replace，後續使用append
+        mode = 'replace' if i == 0 else 'append'
+        chunk.to_sql(tgt, tgt_engine, if_exists=mode,
                      index=False, method=None)
         processed += len(chunk)
         if processed % 500 == 0 or processed == total_rows:
