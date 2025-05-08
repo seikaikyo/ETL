@@ -2,21 +2,21 @@
     "queries": [
         {
             "name": "mes_order_status",
-            "description": "MES工單應結未結清單",
+            "sql_file": "mes_order_status.sql",
             "target_table": "tableau_mes_order_status",
-            "sql_file": "mes/mes_order_status.sql"
+            "description": "MES工單狀態資料"
         },
         {
             "name": "mes_material_loss",
-            "description": "MES損耗差異分析",
+            "sql_file": "mes_material_loss.sql",
             "target_table": "tableau_mes_material_loss",
-            "sql_file": "mes/mes_material_loss.sql"
+            "description": "MES物料損耗資料"
         },
         {
             "name": "sap_production_order",
-            "description": "SAP工單生產收發貨紀錄",
+            "sql_file": "sap_production_order.sql",
             "target_table": "tableau_sap_production_order",
-            "sql_file": "sap/sap_production_order.sql"
+            "description": "SAP生產訂單資料"
         }
     ]
 }
