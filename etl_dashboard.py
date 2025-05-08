@@ -188,7 +188,7 @@ def get_etl_summary(_engine, days=7):
 
         recent_date = datetime.now() - timedelta(days=days)
 
-        # 獲取每日執行統計
+        # 獲取每日執行統計，過濾掉摘要記錄
         daily_stats_query = f"""
         SELECT 
             CONVERT(VARCHAR(10), ETL_DATE, 120) AS ExecutionDate,
@@ -198,13 +198,14 @@ def get_etl_summary(_engine, days=7):
             SUM([ROW_COUNT]) AS TotalRowsProcessed
         FROM ETL_SUMMARY
         WHERE ETL_DATE >= '{recent_date.strftime('%Y-%m-%d')}'
+        AND SUMMARY_TYPE = 'QUERY'  -- 只選擇查詢執行記錄
         GROUP BY CONVERT(VARCHAR(10), ETL_DATE, 120)
         ORDER BY ExecutionDate DESC
         """
 
         daily_stats = pd.read_sql(daily_stats_query, _engine)
 
-        # 獲取最近執行記錄
+        # 獲取最近執行記錄，過濾掉無意義的記錄
         recent_query = """
         SELECT TOP 50
             [TIMESTAMP],
@@ -214,12 +215,18 @@ def get_etl_summary(_engine, days=7):
             [ROW_COUNT],
             CONVERT(VARCHAR(19), ETL_DATE, 120) AS ETL_DATE
         FROM ETL_SUMMARY
+        WHERE [SOURCE_TYPE] IS NOT NULL 
+          AND [SOURCE_TYPE] <> '' 
+          AND [SOURCE_TYPE] <> 'None'
+          AND [QUERY_NAME] IS NOT NULL 
+          AND [QUERY_NAME] <> '' 
+          AND [QUERY_NAME] <> 'None'
         ORDER BY [ETL_DATE] DESC
         """
 
         recent_executions = pd.read_sql(recent_query, _engine)
 
-        # 獲取各目標表的記錄數
+        # 獲取各目標表的記錄數，過濾掉無意義的記錄
         table_stats_query = """
         SELECT 
             s.TARGET_TABLE,
@@ -229,8 +236,16 @@ def get_etl_summary(_engine, days=7):
         INNER JOIN (
             SELECT TARGET_TABLE, MAX(ETL_DATE) AS MaxDate
             FROM ETL_SUMMARY
+            WHERE TARGET_TABLE IS NOT NULL 
+              AND TARGET_TABLE <> '' 
+              AND TARGET_TABLE <> 'None'
+              AND TARGET_TABLE <> 'ALL_TABLES'
             GROUP BY TARGET_TABLE
         ) latest ON s.TARGET_TABLE = latest.TARGET_TABLE AND s.ETL_DATE = latest.MaxDate
+        WHERE s.TARGET_TABLE IS NOT NULL 
+          AND s.TARGET_TABLE <> '' 
+          AND s.TARGET_TABLE <> 'None'
+          AND s.TARGET_TABLE <> 'ALL_TABLES'
         GROUP BY s.TARGET_TABLE
         """
 

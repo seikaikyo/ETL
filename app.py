@@ -121,8 +121,53 @@ def ensure_etl_summary_table(engine):
             [QUERY_NAME] NVARCHAR(255),
             [TARGET_TABLE] NVARCHAR(255),
             [ROW_COUNT] INT,
-            [ETL_DATE] DATETIME DEFAULT GETDATE()
+            [ETL_DATE] DATETIME DEFAULT GETDATE(),
+            [SUMMARY_TYPE] NVARCHAR(50) NULL,
+            [ETL_STATUS] NVARCHAR(50) NULL,
+            [mes_status] NVARCHAR(50) NULL,
+            [sap_status] NVARCHAR(50) NULL,
+            [mes_rows] INT NULL,
+            [sap_rows] INT NULL
         )
+    END
+    ELSE
+    BEGIN
+        -- 確保新增欄位存在
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                       WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'SUMMARY_TYPE')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD [SUMMARY_TYPE] NVARCHAR(50) NULL
+        END
+        
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                       WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'ETL_STATUS')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD [ETL_STATUS] NVARCHAR(50) NULL
+        END
+        
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                       WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'mes_status')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD [mes_status] NVARCHAR(50) NULL
+        END
+        
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                       WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'sap_status')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD [sap_status] NVARCHAR(50) NULL
+        END
+        
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                       WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'mes_rows')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD [mes_rows] INT NULL
+        END
+        
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                       WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'sap_rows')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD [sap_rows] INT NULL
+        END
     END
     """
     try:
@@ -210,8 +255,8 @@ def run_etl(query, src_conn, tgt_engine):
         try:
             with tgt_engine.begin() as conn:
                 stmt = text(
-                    "INSERT INTO ETL_SUMMARY ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE])"
-                    " VALUES (GETDATE(), :source_type, :query_name, :target_table, 0, GETDATE())"
+                    "INSERT INTO ETL_SUMMARY ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE], [SUMMARY_TYPE])"
+                    " VALUES (GETDATE(), :source_type, :query_name, :target_table, 0, GETDATE(), 'QUERY')"
                 )
                 params = {
                     'source_type': source_type,
@@ -253,8 +298,8 @@ def run_etl(query, src_conn, tgt_engine):
         try:
             with tgt_engine.begin() as conn:
                 stmt = text(
-                    "INSERT INTO ETL_SUMMARY ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE])"
-                    " VALUES (GETDATE(), :source_type, :query_name, :target_table, :row_count, GETDATE())"
+                    "INSERT INTO ETL_SUMMARY ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE], [SUMMARY_TYPE])"
+                    " VALUES (GETDATE(), :source_type, :query_name, :target_table, :row_count, GETDATE(), 'QUERY')"
                 )
                 params = {
                     'source_type': source_type,
@@ -283,35 +328,22 @@ def run_etl(query, src_conn, tgt_engine):
 
         raise
 
-# 增加一個用於記錄整體ETL執行摘要的函數
+# 增加一個用於記錄整體ETL執行摘要的函數，修改以解決空行問題
 
 
 def record_etl_summary(engine, mes_status, sap_status, mes_rows, sap_rows):
     """記錄整體ETL執行摘要"""
     try:
-        # 確保表中有正確的欄位
-        with engine.begin() as conn:
-            # 檢查表結構是否包含所需欄位
-            check_columns_sql = """
-            IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
-                          WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'run_time')
-            BEGIN
-                ALTER TABLE ETL_SUMMARY ADD run_time DATETIME
-                ALTER TABLE ETL_SUMMARY ADD mes_status NVARCHAR(50)
-                ALTER TABLE ETL_SUMMARY ADD sap_status NVARCHAR(50)
-                ALTER TABLE ETL_SUMMARY ADD mes_rows INT
-                ALTER TABLE ETL_SUMMARY ADD sap_rows INT
-            END
-            """
-            conn.execute(text(check_columns_sql))
-
-        # 寫入執行摘要
+        # 使用更清晰的標記和完整資訊
         with engine.begin() as conn:
             stmt = text(
-                "INSERT INTO ETL_SUMMARY (run_time, mes_status, sap_status, mes_rows, sap_rows) "
-                "VALUES (GETDATE(), :mes_status, :sap_status, :mes_rows, :sap_rows)"
+                "INSERT INTO ETL_SUMMARY ([TIMESTAMP], [SOURCE_TYPE], [QUERY_NAME], [TARGET_TABLE], [ROW_COUNT], [ETL_DATE], "
+                "[SUMMARY_TYPE], [ETL_STATUS], [mes_status], [sap_status], [mes_rows], [sap_rows])"
+                " VALUES (GETDATE(), 'ALL', 'ETL_COMPLETE', 'ALL_TABLES', :total_rows, GETDATE(), "
+                "'SUMMARY', 'COMPLETE', :mes_status, :sap_status, :mes_rows, :sap_rows)"
             )
             params = {
+                'total_rows': mes_rows + sap_rows,
                 'mes_status': mes_status,
                 'sap_status': sap_status,
                 'mes_rows': mes_rows,

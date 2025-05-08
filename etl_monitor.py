@@ -107,6 +107,11 @@ def get_etl_statistics(days=7):
             [ROW_COUNT],
             CONVERT(VARCHAR(19), ETL_DATE, 120) AS ETL_DATE
         FROM ETL_SUMMARY
+        WHERE [SOURCE_TYPE] IS NOT NULL 
+        AND [SOURCE_TYPE] <> '' 
+        AND [SOURCE_TYPE] <> 'None'
+        AND [SOURCE_TYPE] <> 'ALL'
+        AND (SUMMARY_TYPE = 'QUERY' OR SUMMARY_TYPE IS NULL)
         ORDER BY [ETL_DATE] DESC
         """
 
@@ -123,6 +128,11 @@ def get_etl_statistics(days=7):
         INNER JOIN (
             SELECT TARGET_TABLE, MAX(ETL_DATE) AS MaxDate
             FROM ETL_SUMMARY
+            WHERE TARGET_TABLE IS NOT NULL 
+            AND TARGET_TABLE <> '' 
+            AND TARGET_TABLE <> 'None'
+            AND TARGET_TABLE <> 'ALL_TABLES'
+            AND (SUMMARY_TYPE = 'QUERY' OR SUMMARY_TYPE IS NULL)
             GROUP BY TARGET_TABLE
         ) latest ON s.TARGET_TABLE = latest.TARGET_TABLE AND s.ETL_DATE = latest.MaxDate
         GROUP BY s.TARGET_TABLE
@@ -279,14 +289,14 @@ def create_etl_dashboard():
         FROM ETL_SUMMARY
         WHERE ETL_DATE >= '{recent_date.strftime('%Y-%m-%d')}'
         GROUP BY CONVERT(VARCHAR(10), ETL_DATE, 120)
-        ORDER BY ExecutionDate ASC
+        ORDER BY ExecutionDate DESC
         """
 
         daily_stats_df = pd.read_sql(daily_stats_query, conn)
 
         # 獲取最近的執行記錄
         last_execution_query = """
-        SELECT TOP 20
+        SELECT TOP 10
             [TIMESTAMP],
             [SOURCE_TYPE],
             [QUERY_NAME],
@@ -294,6 +304,11 @@ def create_etl_dashboard():
             [ROW_COUNT],
             CONVERT(VARCHAR(19), ETL_DATE, 120) AS ETL_DATE
         FROM ETL_SUMMARY
+        WHERE [SOURCE_TYPE] IS NOT NULL 
+        AND [SOURCE_TYPE] <> '' 
+        AND [SOURCE_TYPE] <> 'None'
+        AND [SOURCE_TYPE] <> 'ALL'
+        AND (SUMMARY_TYPE = 'QUERY' OR SUMMARY_TYPE IS NULL)
         ORDER BY [ETL_DATE] DESC
         """
 
