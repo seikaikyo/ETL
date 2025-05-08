@@ -95,6 +95,62 @@ def load_queries(path):
         logger.error(f"載入查詢檔失敗: {path}, {e}")
         sys.exit(1)
 
+# 確保 ETL_SUMMARY 表存在且結構正確
+
+
+def ensure_etl_summary_table(engine):
+    sql = """
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ETL_SUMMARY')
+    BEGIN
+        CREATE TABLE ETL_SUMMARY (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            run_time DATETIME,
+            mes_status NVARCHAR(50),
+            sap_status NVARCHAR(50),
+            mes_rows INT,
+            sap_rows INT
+        )
+    END
+    ELSE
+    BEGIN
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'run_time')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD run_time DATETIME
+        END
+
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'mes_status')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD mes_status NVARCHAR(50)
+        END
+
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'sap_status')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD sap_status NVARCHAR(50)
+        END
+
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'mes_rows')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD mes_rows INT
+        END
+
+        IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS 
+                     WHERE TABLE_NAME = 'ETL_SUMMARY' AND COLUMN_NAME = 'sap_rows')
+        BEGIN
+            ALTER TABLE ETL_SUMMARY ADD sap_rows INT
+        END
+    END
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(sql))
+        logger.info("已確保 ETL_SUMMARY 表存在且結構正確")
+    except Exception as e:
+        logger.warning(f"檢查或創建 ETL_SUMMARY 表失敗: {e}")
+
 # 備份並清空目標表
 
 
@@ -106,7 +162,7 @@ def backup_and_truncate(engine, table):
         conn.execute(text(f"TRUNCATE TABLE {table}"))
     return backup
 
-# 執行單筆 ETL
+# 執行單筆 ETL - 使用分批處理避免參數過多錯誤
 
 
 def run_etl(query, src_conn, tgt_engine):
@@ -122,10 +178,24 @@ def run_etl(query, src_conn, tgt_engine):
     logger.info(f"讀取 {len(df)} 筆資料")
     backup = backup_and_truncate(tgt_engine, tgt)
     logger.info(f"備份 {tgt} 至 {backup}，並清空目標表")
-    df.to_sql(tgt, tgt_engine, if_exists='append',
-              index=False, chunksize=1000, method='multi')
-    logger.info(f"已匯入 {len(df)} 筆至 {tgt}")
-    return len(df)
+
+    # 分批處理，每批次最多75筆資料
+    batch_size = 75
+    total_rows = len(df)
+    processed = 0
+
+    for i in range(0, total_rows, batch_size):
+        chunk = df.iloc[i:min(i+batch_size, total_rows)]
+        # 使用單筆插入方式（不使用multi）以避免參數限制錯誤
+        chunk.to_sql(tgt, tgt_engine, if_exists='append',
+                     index=False, method=None)
+        processed += len(chunk)
+        if processed % 500 == 0 or processed == total_rows:
+            logger.info(
+                f"進度: {processed}/{total_rows} 筆 ({int(processed/total_rows*100)}%)")
+
+    logger.info(f"已匯入總計 {total_rows} 筆至 {tgt}")
+    return total_rows
 
 # 記錄 ETL 摘要，若失敗則警告
 
@@ -166,6 +236,9 @@ if __name__ == '__main__':
     src_mes = build_pyodbc_conn(cfg['mes_db'])
     src_sap = build_pyodbc_conn(cfg['sap_db'])
     tgt_engine = build_sqlalchemy_engine(cfg['tableau_db'])
+
+    # 確保 ETL_SUMMARY 表結構正確
+    ensure_etl_summary_table(tgt_engine)
 
     # 載入查詢定義
     query_metadata = load_queries('query_metadata.json')
