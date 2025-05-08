@@ -6,6 +6,7 @@ import logging
 import json
 import datetime
 import sys
+import os
 import pandas as pd
 import pyodbc
 from sqlalchemy import create_engine, text
@@ -67,6 +68,22 @@ def build_sqlalchemy_engine(cfg):
     )
     return create_engine(uri, fast_executemany=True)
 
+# 讀取SQL文件
+
+
+def load_sql_file(sql_file):
+    try:
+        # 取得當前腳本所在目錄的絕對路徑
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # 拼接SQL文件的絕對路徑
+        sql_path = os.path.join(base_dir, 'queries', sql_file)
+
+        with open(sql_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"讀取SQL文件失敗: {sql_file}, {e}")
+        sys.exit(1)
+
 # 讀取查詢定義
 
 
@@ -95,7 +112,11 @@ def backup_and_truncate(engine, table):
 def run_etl(query, src_conn, tgt_engine):
     name = query['name']
     tgt = query['target_table']
-    sql = query['sql']
+    sql_file = query['sql_file']
+
+    # 從SQL文件讀取SQL語句
+    sql = load_sql_file(sql_file)
+
     logger.info(f"處理查詢: {name}")
     df = pd.read_sql(sql, src_conn)
     logger.info(f"讀取 {len(df)} 筆資料")
@@ -147,8 +168,9 @@ if __name__ == '__main__':
     tgt_engine = build_sqlalchemy_engine(cfg['tableau_db'])
 
     # 載入查詢定義
-    mes_q = load_queries('mes_queries.json')
-    sap_q = load_queries('sap_queries.json')
+    query_metadata = load_queries('query_metadata.json')
+    mes_q = [q for q in query_metadata if q['name'].startswith('mes_')]
+    sap_q = [q for q in query_metadata if q['name'].startswith('sap_')]
 
     mes_stat = sap_stat = '跳過'
     mes_cnt = sap_cnt = 0

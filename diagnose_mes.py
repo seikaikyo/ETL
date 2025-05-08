@@ -33,12 +33,38 @@ def load_db_config():
         sys.exit(1)
 
 
+def load_sql_file(sql_file):
+    """從SQL檔案讀取查詢內容"""
+    try:
+        # 取得當前腳本所在目錄的絕對路徑
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # 拼接SQL文件的絕對路徑
+        sql_path = os.path.join(base_dir, 'queries', sql_file)
+
+        with open(sql_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"讀取SQL文件失敗: {sql_file}, {e}")
+        sys.exit(1)
+
+
 def load_mes_queries():
     """載入 MES 查詢"""
     try:
-        with open('mes_queries.json', 'r', encoding='utf-8') as f:
+        with open('query_metadata.json', 'r', encoding='utf-8') as f:
             queries = json.load(f)
-        return queries
+
+        # 過濾出MES相關的查詢
+        mes_queries = {
+            "queries": [q for q in queries['queries'] if q['name'].startswith('mes_')]
+        }
+
+        # 讀取每個查詢的SQL
+        for query in mes_queries['queries']:
+            sql_file = query['sql_file']
+            query['sql'] = load_sql_file(sql_file)
+
+        return mes_queries
     except Exception as e:
         logger.error(f"讀取 MES 查詢文件時出錯: {e}")
         sys.exit(1)
