@@ -76,7 +76,7 @@ def load_sql_file(sql_file):
         # 取得當前腳本所在目錄的絕對路徑
         base_dir = os.path.dirname(os.path.abspath(__file__))
         # 拼接SQL文件的絕對路徑
-        sql_path = os.path.join(base_dir, 'queries', sql_file)
+        sql_path = os.path.join(base_dir, sql_file)
 
         with open(sql_path, 'r', encoding='utf-8') as f:
             return f.read()
