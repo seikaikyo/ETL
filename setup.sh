@@ -201,16 +201,27 @@ setup_python_venv() {
     # 安裝 Python 套件
     info "安裝必要的 Python 套件..."
     pip install --upgrade pip
-    pip install pyodbc pandas
+    
+    # 檢查是否存在 requirements.txt
+    if [ -f "requirements.txt" ]; then
+        info "使用現有的 requirements.txt 安裝套件..."
+        pip install -r requirements.txt
+    else
+        info "安裝核心套件..."
+        pip install pyodbc pandas sqlalchemy numpy python-dateutil pytz tabulate
+    fi
     
     if [ $? -ne 0 ]; then
         error "安裝 Python 套件失敗"
         return 1
     fi
     
-    # 創建 requirements.txt
-    info "創建 requirements.txt 文件..."
-    pip freeze > requirements.txt
+    # 測試自定義模組
+    info "測試自定義模組載入..."
+    python3 -c "from config import get_config_manager; from database import DatabaseManager; from sql_loader import SQLLoader; print('✓ 自定義模組載入成功')" || {
+        error "自定義模組載入失敗"
+        return 1
+    }
     
     success "Python 虛擬環境設置完成"
     return 0
@@ -220,44 +231,31 @@ setup_python_venv() {
 check_db_connection() {
     info "檢查資料庫連接..."
     
-    # 檢查 db.json 是否存在
-    if [ ! -f "db.json" ]; then
-        error "缺少 db.json 配置文件"
-        return 1
-    fi
+    # 檢查必要文件
+    required_files=("db.json" "app.py" "config.py" "database.py" "sql_loader.py")
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+            error "缺少必要文件: $file"
+            return 1
+        fi
+    done
     
-    # 檢查 app.py 是否存在
-    if [ ! -f "app.py" ]; then
-        error "缺少 app.py 文件"
-        return 1
-    fi
-    
-    # 檢查資料庫設定
-    info "檢查資料庫設定..."
-    mes_server=$(grep -o '"server": "[^"]*"' db.json | head -1 | cut -d'"' -f4)
-    mes_db=$(grep -o '"database": "[^"]*"' db.json | head -1 | cut -d'"' -f4)
-    tableau_server=$(grep -o '"server": "[^"]*"' db.json | head -2 | tail -1 | cut -d'"' -f4)
-    tableau_db=$(grep -o '"database": "[^"]*"' db.json | head -2 | tail -1 | cut -d'"' -f4)
-    
-    info "來源資料庫 (MES): $mes_server/$mes_db"
-    info "目標資料庫 (Tableau): $tableau_server/$tableau_db"
-    
-    # 檢查是否有 SAP 資料庫設定
-    if grep -q "sap_db" db.json; then
-        sap_server=$(grep -o '"server": "[^"]*"' db.json | head -3 | tail -1 | cut -d'"' -f4)
-        sap_db=$(grep -o '"database": "[^"]*"' db.json | head -3 | tail -1 | cut -d'"' -f4)
-        info "來源資料庫 (SAP): $sap_server/$sap_db"
+    # 使用新的診斷工具測試連接
+    info "使用診斷工具檢查連接..."
+    if [ -f "diagnose_etl.py" ]; then
+        python3 diagnose_etl.py --connections-only
+        if [ $? -ne 0 ]; then
+            error "資料庫連接測試失敗"
+            info "請檢查 db.json 中的資料庫配置"
+            return 1
+        fi
     else
-        warning "找不到 SAP 資料庫設定"
-    fi
-    
-    # 運行測試連接程序
-    info "運行資料庫連接測試..."
-    python app.py
-    
-    if [ $? -ne 0 ]; then
-        error "資料庫連接測試失敗"
-        return 1
+        warning "找不到 diagnose_etl.py，使用傳統方法測試"
+        python3 app.py --debug
+        if [ $? -ne 0 ]; then
+            error "資料庫連接測試失敗"
+            return 1
+        fi
     fi
     
     success "資料庫連接測試成功"
@@ -417,6 +415,8 @@ main() {
             check_db_connection
             setup_gitlab_ci
             check_setup
+            success "ETL 環境安裝完成！"
+            info "建議執行: ./setup.sh diagnose 來進行完整診斷"
             ;;
         test_db)
             init_setup
@@ -427,12 +427,41 @@ main() {
             init_setup
             check_setup
             ;;
+        diagnose)
+            init_setup
+            info "執行完整 ETL 系統診斷..."
+            if [ -f "diagnose_etl.py" ]; then
+                python3 diagnose_etl.py --output=etl_diagnostic_report.txt
+                if [ $? -eq 0 ]; then
+                    success "診斷報告已保存至 etl_diagnostic_report.txt"
+                else
+                    error "診斷失敗"
+                    return 1
+                fi
+            else
+                error "找不到 diagnose_etl.py 診斷工具"
+                return 1
+            fi
+            ;;
+        test_etl)
+            init_setup
+            info "測試 ETL 主程式..."
+            python3 app.py --debug
+            if [ $? -eq 0 ]; then
+                success "ETL 主程式測試完成"
+            else
+                error "ETL 主程式測試失敗"
+                return 1
+            fi
+            ;;
         *)
-            info "ETL 環境設置腳本"
-            info "用法: $0 {install|test_db|check}"
-            info "  install  - 安裝完整環境"
-            info "  test_db  - 僅測試資料庫連接"
-            info "  check    - 檢查現有環境"
+            info "ETL 環境設置腳本 - 升級版"
+            info "用法: $0 {install|test_db|check|diagnose|test_etl}"
+            info "  install   - 安裝完整環境"
+            info "  test_db   - 僅測試資料庫連接"
+            info "  check     - 檢查現有環境"
+            info "  diagnose  - 執行完整診斷並生成報告"
+            info "  test_etl  - 測試 ETL 主程式"
             exit 1
             ;;
     esac

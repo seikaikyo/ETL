@@ -260,7 +260,7 @@ def check_for_float_conversion_issues(conn, query):
                     THEN '損耗率計算錯誤'
                     ELSE 'OK'
                 END AS LOSS_CALC_STATUS
-            FROM [yesiang-MES-AP_New].[dbo].[MANUFACTURING_NO] mn
+            FROM [MANUFACTURING_NO] mn
             LEFT JOIN (
                 SELECT 
                     PLANT,
