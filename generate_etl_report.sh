@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# 簡單的ETL報告生成腳本
-# 這個腳本只生成報告，不執行ETL處理
+# 升級版ETL報告生成腳本
+# 整合新的診斷工具並生成統一報告
 
 # 設定日誌和報告目錄
 REPORT_DIR="./reports"
@@ -28,6 +28,15 @@ echo "記憶體使用狀況:" >> $REPORT_FILE
 free -h >> $REPORT_FILE
 echo "" >> $REPORT_FILE
 
+echo "===== ETL系統診斷 =====" >> $REPORT_FILE
+if [ -f "diagnose_etl.py" ]; then
+    echo "執行系統診斷..."
+    python3 diagnose_etl.py --connections-only >> $REPORT_FILE 2>&1
+    echo "" >> $REPORT_FILE
+else
+    echo "找不到診斷工具" >> $REPORT_FILE
+fi
+
 echo "===== ETL日誌摘要 =====" >> $REPORT_FILE
 if [ -f "./etl_log.log" ]; then
     tail -n 20 ./etl_log.log >> $REPORT_FILE
@@ -35,14 +44,6 @@ else
     echo "找不到ETL日誌文件" >> $REPORT_FILE
 fi
 echo "" >> $REPORT_FILE
-
-echo "===== ETL監控資訊 =====" >> $REPORT_FILE
-# 獲取ETL連線測試摘要
-if [ -f "./etl_monitor.log" ]; then
-    grep -i "ETL" ./etl_monitor.log | tail -n 10 >> $REPORT_FILE
-else
-    echo "找不到ETL監控日誌文件" >> $REPORT_FILE
-fi
 
 # 生成簡單的HTML報告
 HTML_FILE="$REPORT_DIR/etl_report_$(date +%Y%m%d%H%M).html"
@@ -117,11 +118,11 @@ cat > $HTML_FILE << EOL
             <pre>$(free -h)</pre>
         </div>
         
+        <h2>ETL系統診斷</h2>
+        <pre>$(if [ -f "diagnose_etl.py" ]; then python3 diagnose_etl.py --connections-only 2>&1; else echo "找不到診斷工具"; fi)</pre>
+        
         <h2>ETL日誌摘要</h2>
         <pre>$(if [ -f "./etl_log.log" ]; then tail -n 20 ./etl_log.log; else echo "找不到ETL日誌文件"; fi)</pre>
-        
-        <h2>ETL監控資訊</h2>
-        <pre>$(if [ -f "./etl_monitor.log" ]; then grep -i "ETL" ./etl_monitor.log | tail -n 10; else echo "找不到ETL監控日誌文件"; fi)</pre>
         
         <div class="footer">
             <p>YS ETL 系統 - 自動生成報告</p>

@@ -1,61 +1,174 @@
 #!/bin/bash
 
-# 設定日誌檔案
-NORMAL_LOG_FILE="/home/ETL/git_pull_normal.log"
-ERROR_LOG_FILE="/home/ETL/git_pull_error.log"
-MAX_NORMAL_LOG_SIZE=1048576  # 1MB 
+# ETL系統更新腳本 - 升級版
+# 支援新的模組化架構和安全檢查
 
-# 切換到專案目錄
-cd /home/ETL/etl
+# 設定常數
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_FILE="$SCRIPT_DIR/update_etl.log"
+ERROR_LOG_FILE="$SCRIPT_DIR/update_etl_error.log"
 
-# 配置 git 忽略 SSL 驗證 (如果需要)
-git config --global http.sslVerify false
+# 顏色代碼
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
 
-# 創建臨時檔案來捕獲輸出
-TEMP_LOG=$(mktemp)
+# 日誌函數
+log() {
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
 
-# 記錄時間
-echo "===== 開始更新 $(date) =====" > $TEMP_LOG
+error_log() {
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S') - ${RED}[ERROR]${NC} $1" | tee -a "$ERROR_LOG_FILE"
+}
 
-# 拉取最新代碼
-git pull origin main >> $TEMP_LOG 2>&1
-PULL_STATUS=$?
+success_log() {
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S') - ${GREEN}[SUCCESS]${NC} $1" | tee -a "$LOG_FILE"
+}
 
-# 完成記錄
-echo "===== 更新結束 $(date) =====" >> $TEMP_LOG
-echo "" >> $TEMP_LOG
+warning_log() {
+    echo -e "$(date '+%Y-%m-%d %H:%M:%S') - ${YELLOW}[WARNING]${NC} $1" | tee -a "$LOG_FILE"
+}
 
-# 根據執行結果保存到不同的日誌檔案
-if [ $PULL_STATUS -eq 0 ]; then
-    # 正常執行 - 檢查正常日誌大小並管理
-    if [ -f "$NORMAL_LOG_FILE" ]; then
-        log_size=$(stat -c%s "$NORMAL_LOG_FILE" 2>/dev/null || echo "0")
-        if [ $log_size -gt $MAX_NORMAL_LOG_SIZE ]; then
-            # 保留最後 5 筆記錄
-            tail -n 100 "$NORMAL_LOG_FILE" > "${NORMAL_LOG_FILE}.tmp"
-            mv "${NORMAL_LOG_FILE}.tmp" "$NORMAL_LOG_FILE"
+# 檢查Git狀態
+check_git_status() {
+    log "檢查Git狀態..."
+    
+    if [ ! -d ".git" ]; then
+        error_log "當前目錄不是Git倉庫"
+        return 1
+    fi
+    
+    # 檢查是否有未提交的變更
+    if ! git diff --quiet; then
+        warning_log "檢測到未提交的變更"
+        git status --porcelain | tee -a "$LOG_FILE"
+        
+        read -p "是否要儲存這些變更？(y/n): " save_changes
+        if [ "$save_changes" = "y" ] || [ "$save_changes" = "Y" ]; then
+            git stash push -m "Auto-stash before update $(date)"
+            log "已儲存未提交的變更"
         fi
     fi
     
-    # 添加新的日誌條目
-    cat $TEMP_LOG >> $NORMAL_LOG_FILE
-    
-    # 執行額外的成功操作，如有需要
-    # python app.py >> $NORMAL_LOG_FILE 2>&1
-else
-    # 異常執行 - 保存詳細錯誤日誌，包含時間戳記
-    ERROR_TIME=$(date +"%Y%m%d%H%M%S")
-    cat $TEMP_LOG > "${ERROR_LOG_FILE}.${ERROR_TIME}"
-    
-    # 同時追加到主要錯誤日誌
-    cat $TEMP_LOG >> $ERROR_LOG_FILE
-    
-    # 發送通知或其他異常處理，如有需要
-    # echo "Git pull 失敗，請查看日誌 ${ERROR_LOG_FILE}.${ERROR_TIME}" | mail -s "ETL 更新失敗" admin@example.com
-fi
+    return 0
+}
 
-# 清理臨時檔案
-rm $TEMP_LOG
+# 更新代碼
+update_code() {
+    log "開始更新代碼..."
+    
+    # 記錄更新前的版本
+    local current_commit=$(git rev-parse HEAD)
+    log "更新前版本: $current_commit"
+    
+    # 拉取最新代碼
+    if git pull origin main; then
+        local new_commit=$(git rev-parse HEAD)
+        if [ "$current_commit" != "$new_commit" ]; then
+            success_log "代碼更新成功: $current_commit -> $new_commit"
+            return 0
+        else
+            log "代碼已是最新版本"
+            return 0
+        fi
+    else
+        error_log "代碼更新失敗"
+        return 1
+    fi
+}
 
-# 保留最近 30 天的錯誤日誌，刪除更舊的
-find /home/ETL -name "git_pull_error.log.*" -mtime +30 -delete
+# 驗證更新後的代碼
+validate_update() {
+    log "驗證更新後的代碼..."
+    
+    # 檢查核心文件是否存在
+    local required_files=("app.py" "config.py" "database.py" "sql_loader.py" "diagnose_etl.py")
+    
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+            error_log "缺少核心文件: $file"
+            return 1
+        fi
+    done
+    
+    # 檢查Python語法
+    log "檢查Python語法..."
+    for py_file in *.py; do
+        if [ -f "$py_file" ]; then
+            if ! python3 -m py_compile "$py_file"; then
+                error_log "Python語法錯誤: $py_file"
+                return 1
+            fi
+        fi
+    done
+    
+    # 嘗試導入核心模組
+    log "測試核心模組載入..."
+    if ! python3 -c "from config import get_config_manager; print('配置模組載入成功')"; then
+        error_log "配置模組載入失敗"
+        return 1
+    fi
+    
+    success_log "代碼驗證通過"
+    return 0
+}
+
+# 執行診斷
+run_diagnostics() {
+    log "執行系統診斷..."
+    
+    if [ -f "diagnose_etl.py" ]; then
+        if python3 diagnose_etl.py --connections-only; then
+            success_log "系統診斷通過"
+            return 0
+        else
+            warning_log "系統診斷發現問題，請查看診斷報告"
+            return 1
+        fi
+    else
+        warning_log "找不到診斷工具，跳過診斷"
+        return 0
+    fi
+}
+
+# 主函數
+main() {
+    log "===== ETL系統更新開始 ====="
+    
+    # 切換到腳本目錄
+    cd "$SCRIPT_DIR" || {
+        error_log "無法切換到腳本目錄: $SCRIPT_DIR"
+        exit 1
+    }
+    
+    # 檢查Git狀態
+    if ! check_git_status; then
+        error_log "Git狀態檢查失敗"
+        exit 1
+    fi
+    
+    # 更新代碼
+    if ! update_code; then
+        error_log "代碼更新失敗"
+        exit 1
+    fi
+    
+    # 驗證更新
+    if ! validate_update; then
+        error_log "代碼驗證失敗"
+        exit 1
+    fi
+    
+    # 執行診斷
+    run_diagnostics
+    
+    log "===== ETL系統更新完成 ====="
+    success_log "更新成功！日誌保存於: $LOG_FILE"
+    
+    exit 0
+}
+
+# 執行主函數
+main "$@"

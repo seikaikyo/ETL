@@ -40,7 +40,7 @@ Select
    ,asp.[QTY_M] [生管派工數量]	
    ,CONVERT(varchar(20), asp.[UPDATE_DD], 20) [生管指派時間]	
    ,asp.[ASSIGN_OP] [生管指派人]	
-FROM [yesiang-MES-AP_New].[dbo].[MANUFACTURING_NO] mn 		
+FROM [MANUFACTURING_NO] mn 		
 LEFT JOIN (	
     SELECT 
         a.[MANUFACTURING_OD],
@@ -52,7 +52,7 @@ LEFT JOIN (
         QTY_M,
         b.USER_NAME ASSIGN_OP,
         MAX([UPDATE_DD]) UPDATE_DD
-    FROM [yesiang-MES-AP_New].[dbo].[ASSIGN_M_H] a, [yesiang-MES-AP_New].[dbo].[USER] b
+    FROM [ASSIGN_M_H] a, [USER] b
     WHERE a.[CREATED_U_ID] = b.[USER_ID]
     GROUP BY a.[MANUFACTURING_OD], a.[STEP_ID], a.[OPERATION_DESC], a.[DEVICE_DESC], a.[QTY_M], b.[USER_NAME]	
 ) amh ON mn.[MANUFACTURING_OD] = amh.[MANUFACTURING_OD]	
@@ -66,7 +66,7 @@ LEFT JOIN (
         a.[USER_CNT],
         b.[USER_NAME] ASSIGN_OP,
         UPDATE_DD
-    FROM [yesiang-MES-AP_New].[dbo].[ASSIGN_PLAN] a, [yesiang-MES-AP_New].[dbo].[USER] b
+    FROM [ASSIGN_PLAN] a, [USER] b
     WHERE a.[CREATED_U_ID] = b.[USER_ID]
 ) asp ON amh.[MANUFACTURING_OD] = asp.[MANUFACTURING_OD] AND amh.[STEP_ID] = asp.[STEP_ID]
 WHERE mn.MATERIAL IS NOT NULL

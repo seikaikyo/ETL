@@ -21,20 +21,36 @@
 
 ```
 etl/
-├── app.py                   # ETL 主程式
-├── db.json                  # 資料庫連線設定檔 (敏感資訊)
-├── db.template.json         # 資料庫連線設定範本
-├── requirements.txt         # Python 相依套件清單
-├── query_metadata.json      # 查詢定義中繼資料
-├── mes/                     # MES 相關查詢
-│   ├── mes_material_loss.sql  # MES 物料損耗查詢
-│   └── mes_order_status.sql   # MES 工單狀態查詢
-├── sap/                     # SAP 相關查詢
-│   └── sap_production_order.sql  # SAP 生產訂單查詢
-├── etl_scheduler.sh         # ETL 排程執行腳本
-├── setup.sh                 # 環境設置腳本
-└── reports/                 # 報告輸出目錄
-    └── etl_latest_report.html  # 最新 ETL 執行報告
+├── 核心程式檔案
+│   ├── app.py               # ETL 主程式 (重構版)
+│   ├── config.py            # 統一配置管理模組
+│   ├── database.py          # 安全資料庫連線管理器
+│   └── sql_loader.py        # 安全SQL文件載入器
+├── 診斷和監控
+│   ├── diagnose_etl.py      # 完整ETL系統診斷工具
+│   ├── etl_monitor.py       # ETL 監控工具
+│   └── etl_dashboard.py     # Streamlit 儀表板應用
+├── 配置檔案
+│   ├── db.json              # 資料庫連線設定檔 (敏感資訊)
+│   ├── db.template.json     # 資料庫連線設定範本
+│   ├── query_metadata.json  # 統一查詢定義中繼資料
+│   └── requirements.txt     # Python 相依套件清單
+├── SQL查詢檔案
+│   ├── mes/                 # MES 相關查詢 (已清理硬編碼)
+│   │   ├── mes_material_loss.sql    # MES 物料損耗查詢
+│   │   ├── mes_order_status.sql     # MES 工單狀態查詢
+│   │   ├── mes_daily_dispatch.sql   # MES 每日派工查詢
+│   │   ├── mes_daily_output.sql     # MES 每日產出查詢
+│   │   └── mes_machine_time_diff.sql # MES 工機時差異查詢
+│   └── sap/                 # SAP 相關查詢
+│       └── sap_production_order.sql # SAP 生產訂單查詢
+└── 部署和維護腳本
+    ├── setup.sh             # 環境設置腳本 (升級版)
+    ├── update_etl.sh        # ETL系統更新腳本 (重構版)
+    ├── etl_scheduler.sh     # ETL 排程執行腳本
+    ├── setup_crontab.sh    # 排程設置腳本
+    ├── generate_etl_report.sh # 報告生成腳本 (整合診斷)
+    └── git_sync.sh          # Git同步腳本
 ```
 
 ## 檔案說明
@@ -47,13 +63,19 @@ etl/
 - `etl_dashboard.py` - Streamlit 儀表板應用，提供 ETL 執行狀態的可視化介面
 - `generate_etl_report.sh` - 簡單的 ETL 報告生成腳本
 
-### 設定與查詢檔案
+### 配置管理系統
+
+- `config.py` - 統一配置管理模組
+  - `ETLConfig` 類別：所有可配置參數
+  - `ConfigManager` 類別：配置載入和驗證
+  - 支援環境變數覆蓋
+  - 配置完整性驗證
 
 - `db.json` - 資料庫連線設定檔 (包含敏感資訊)
 - `db.template.json` - 資料庫連線設定範本 (不含敏感資訊)
-- `query_metadata.json` - 查詢定義中繼資料，包含查詢名稱、目標表及 SQL 檔案路徑
-- `mes_queries.json` - MES 資料庫查詢定義
-- `sap_queries.json` - SAP 資料庫查詢定義
+- `query_metadata.json` - 統一查詢定義中繼資料
+  - 整合所有MES和SAP查詢
+  - 包含查詢名稱、目標表及SQL檔案路徑
 
 ### SQL 查詢檔案
 
@@ -78,9 +100,12 @@ ETL 系統使用的 SQL 查詢檔案按資料來源分類存放：
 
 ### 診斷與測試工具
 
-- `debug_mes.py` - MES 資料庫資料診斷工具
-- `diagnose_mes.py` - MES 詳細診斷工具
-- `create_etl_summary.sql` - ETL 摘要表結構建立 SQL
+- `diagnose_etl.py` - 統一ETL系統診斷工具
+  - 資料庫連線測試
+  - SQL語法驗證
+  - 查詢執行測試
+  - 目標表相容性檢查
+  - 自動生成診斷報告
 
 ## 相依套件
 
@@ -197,13 +222,43 @@ streamlit run etl_dashboard.py
 - 目標資料表最新狀態
 - 最近執行記錄詳情
 
-## 安全性注意事項
+## 安全性與架構改進
 
-1. **資料庫憑證管理**:
+### 🔒 安全性強化
 
+1. **SQL注入防護**:
+   - 全面實施參數化查詢
+   - 使用SQLAlchemy的安全查詢機制
+   - SQL內容安全驗證
+
+2. **配置安全管理**:
+   - 移除所有硬編碼敏感資訊
+   - 集中化配置管理
    - 憑證資訊存放於 `db.json` 檔案中，此檔案已加入 `.gitignore`
    - 請勿將包含敏感資訊的 `db.json` 提交至版本控制系統
    - 開發人員請使用 `db.template.json` 做為範本，自行建立 `db.json` 並填入連線資訊
+
+3. **文件路徑安全**:
+   - SQL文件載入路徑驗證
+   - 防止目錄遍歷攻擊
+   - 文件內容安全掃描
+
+### 🛠 架構改進
+
+1. **模組化設計**:
+   - 清晰的關注點分離
+   - 可重用的組件
+   - 易於測試和維護
+
+2. **錯誤處理增強**:
+   - 自動重試機制
+   - 連線池管理
+   - 優雅的錯誤恢復
+
+3. **完整的診斷能力**:
+   - 統一的診斷工具
+   - 自動化健康檢查
+   - 詳細的問題報告
 
 2. **環境變數使用建議**:
 
@@ -291,9 +346,12 @@ python etl_monitor.py --init
 3. 測試 SQL 查詢：
 
    ```bash
-   # 對 MES 查詢進行診斷測試
-   python diagnose_mes.py --sql mes/your_new_query.sql
+   # 執行完整系統診斷
+   python3 diagnose_etl.py
+
+   # 僅測試資料庫連線
+   python3 diagnose_etl.py --connections-only
 
    # 運行 ETL 處理以測試新查詢
-   python app.py --all --debug
+   python3 app.py --all --debug
    ```

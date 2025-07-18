@@ -124,12 +124,12 @@ FROM (
         (SELECT SUM([IN_QTY]) FROM [DC_BATCHNO_INFO] 
          WHERE [RUN_CARD] = mn.[MANUFACTURING_OD] AND [STEP_ID] = rs.[STEP_ID] 
          AND [STATUS] = 2) [不良品批號數量]
-    FROM [yesiang-MES-AP_New].[dbo].[MANUFACTURING_NO] mn
-    LEFT JOIN [yesiang-MES-AP_New].[dbo].[ROUTER_STEP] rs
+    FROM [MANUFACTURING_NO] mn
+    LEFT JOIN [ROUTER_STEP] rs
         ON mn.[MANUFACTURING_OD] = rs.[ROUTER]
-    LEFT JOIN [yesiang-MES-AP_New].[dbo].[OPERATION] op
+    LEFT JOIN [OPERATION] op
         ON rs.[OPERATION] = op.[OPERATION]
-    LEFT JOIN [yesiang-MES-AP_New].[dbo].[RCD_STEP] rcds
+    LEFT JOIN [RCD_STEP] rcds
         ON rcds.[RUN_CARD] = mn.[MANUFACTURING_OD] 
         AND rcds.[PLANT] = mn.[PLANT] 
         AND rcds.[ROUTER] = rs.[ROUTER]
