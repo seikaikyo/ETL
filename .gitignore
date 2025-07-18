@@ -19,11 +19,10 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
-.claude/
-
 # 系統文件
 .DS_Store
 Thumbs.db
 
 # 暫存目錄
 .pip-cache/
+.claude/settings.local.json
